@@ -123,6 +123,8 @@ public:
     constexpr uint64_t popcount() const;
     void check() const;
     constexpr uint8_t at(std::size_t index) const;
+    template <typename Func>
+    constexpr void foreach_setbit(Func ff) const;
 
 private:
     std::vector<uint64_t> vec_;
@@ -175,6 +177,24 @@ Bitmap::popcount() const
     return std::transform_reduce(std::begin(vec_), std::end(vec_), 0, std::plus{}, [](auto v){ return std::popcount(v);});
 }
 
+template <typename Func>
+constexpr
+void
+Bitmap::foreach_setbit(Func ff) const
+{
+    constexpr int rez[] = {1,7,11,13,17,19,23,29};
+    constexpr int d[] = {6,4,2,4,2,4,6,2};
+    auto k = 0;
+    auto c = n0_;
+    for(auto i = std::distance(std::begin(rez), std::find(std::begin(rez), std::end(rez), n0_ % 30));
+        k < size();
+        c += d[i], i = (i+1)%8, ++k) {
+	if(at(k)) {
+	    ff(k, c);
+	}
+    }
+}
+
 void
 Bitmap::check() const
 {
@@ -213,7 +233,7 @@ Bitmap::check() const
 constexpr
 uint8_t Bitmap::at(std::size_t index) const
 {
-    return (vec_[index / NumLim::digits] & (1ull << (index % NumLim::digits))) ? 1 : 0;
+    return (vec_[index / NumLim::digits] & (ElemType{1} << (index % NumLim::digits))) ? 1 : 0;
 }
 
 /*
@@ -316,43 +336,22 @@ constexpr std::array<T,54> u8primes()
         233, 239, 241, 251};
 }
 
-template <typename T>
-constexpr void enum_u16_primes(T action)
+template <typename T, typename It>
+constexpr std::vector<T>
+collectSieveResults(It first, It last, Bitmap const & bmp)
 {
-    auto is_prime = [](auto n) -> bool {
-        for(auto p : u8primes<uint8_t>()) {
-            if((p != n) && !(n % p)) {
-                return false;
-            }
-            if(uint16_t(p) * p > n)
-                break;
-        }
-        return true;
-    };
-    action(2);
-    action(3);
-    for(int i = 6; i < 65535; i += 6) {
-        for(auto k : {-1,1})
-            if(is_prime(i+k))
-                action(i+k);
+    auto count = std::distance(first, last) + bmp.popcount();
+    if(!count) {
+	return std::vector<T>{};
     }
+    std::vector<T> res;
+    res.reserve(count);
+    std::copy(first, last, std::back_inserter(res));
+    bmp.foreach_setbit([&res](auto, T p) { res.push_back(p); });
+
+    return res;
 }
 
-constexpr int count_u16_primes()
-{
-    auto count = 0;
-    enum_u16_primes([&count](auto){ ++count; });
-    return count;
-}
-
-template <typename T>
-constexpr std::array<T,count_u16_primes()> u16primes()
-{
-    std::array<T,count_u16_primes()> primes;
-    int idx = 0;
-    enum_u16_primes([&primes,&idx](T x){primes[idx++] = x;});    
-    return primes;
-}
 
 template <typename T, typename SP, typename U>
 constexpr std::vector<T>
@@ -412,23 +411,8 @@ inner_sieve(SP const & smallPrimes, U n0, U n1)
 	    bmp.reset(bmp.indexOf(c));
 	}
     }
-    std::vector<T> res(std::distance(it0, std::end(smallPrimes)) + bmp.popcount(), T{});
-    std::copy(it0, std::end(smallPrimes), std::begin(res));
-    auto pos = std::distance(it0, std::end(smallPrimes));
-    int rez[] = {1,7,11,13,17,19,23,29};
-    int d[] = {6,4,2,4,2,4,6,2};
-    auto k = 0;
-    auto c = n0;
-    for(auto i = std::distance(std::begin(rez), std::find(std::begin(rez), std::end(rez), n0 % 30));
-        k < bmp.size();
-        c += d[i], i = (i+1)%8, ++k) {
-	if(bmp.at(k)) {
-	    res[pos++] = c;
-	}
-    }
-    return res;
+    return collectSieveResults<T>(it0, std::end(smallPrimes), bmp);
 }
-
 
 template <typename T>
 constexpr std::vector<T>
@@ -505,37 +489,5 @@ int main(int , char**)
     static_assert(sieve32<uint32_t>(3221225474, 3221225503) == std::vector<uint32_t>{3221225479});
     static_assert(sieve32<uint32_t>(3221224471, 3221225472).size() == 37);
 
-    auto const & u16_primes = u16primes<uint16_t>();
-    std::cout << "pi(2^16)=" << u16_primes.size() << std::endl;
-    //shortjt();
-    //gentable();
-    //work();
-    auto const m = 65520;
-    Bitmap bitmap{30,17464};
-    auto primes = {7, 11, 13, 17, 19, 23, 29, 31, 37, 41,
-                43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89,
-                97, 101, 103, 107, 109, 113, 127, 131, 137,
-                139, 149, 151, 157, 163, 167, 173, 179, 181,
-                191, 193, 197, 199, 211, 223, 227, 229, 233,
-                239, 241, 251};
-    for(auto p : primes) {
-        //std::cout << p << ":";
-        auto c = ((p*p) >= 31) ? p*p : p*p + (31 - p*p + 2*p - 1)/(2*p)*(2*p);
-        auto cmod30 = c % 30;
-        switch(cmod30) {
-            case 3: case 5: case 9: case 15: case 21: case 25: case 27:
-            c += adjt[(p%30)*4/15][cmod30>>1] * p;
-            cmod30 = c % 30;
-            default:;
-        }
-        for(auto j = whoffs[(p%30)*4/15][cmod30*4/15]; c < m; c += wheel[(p%30)*4/15][j]*p, j = (j+1)%8) {
-            //std::cout << c << " = " << (c%30) << "(30)"<< std::endl;
-            //std::cout << " " << c;
-            bitmap.reset(bitmap.indexOf(c));
-        }
-        //std::cout << std::endl;
-    }
-    std::cout << "count = " << bitmap.popcount() << std::endl;
-    bitmap.check();
-//    work();
+    return 0;
 }
