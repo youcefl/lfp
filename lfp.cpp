@@ -16,7 +16,7 @@
 #include <map>
 #include <bit>
 #include <ranges>
-
+#include <sstream>
 
 void gentable()
 {
@@ -336,39 +336,23 @@ constexpr std::array<T,54> u8primes()
         233, 239, 241, 251};
 }
 
-template <typename T, typename It>
-constexpr std::vector<T>
-collectSieveResults(It first, It last, Bitmap const & bmp)
-{
-    auto count = std::distance(first, last) + bmp.popcount();
-    if(!count) {
-	return std::vector<T>{};
-    }
-    std::vector<T> res;
-    res.reserve(count);
-    std::copy(first, last, std::back_inserter(res));
-    bmp.foreach_setbit([&res](auto, T p) { res.push_back(p); });
 
-    return res;
-}
-
-
-template <typename T, typename SP, typename U>
-constexpr std::vector<T>
-inner_sieve(SP const & smallPrimes, U n0, U n1)
+template <typename T, typename SP, typename U, typename Func>
+constexpr auto 
+inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff)
 {
     if((n0 >= n1) || (n0 > std::numeric_limits<U>::max() - 2)) {
-        return std::vector<T>{};
+        return ff(std::begin(smallPrimes), std::begin(smallPrimes), nullptr);
     }
 
     auto it0 = std::lower_bound(std::begin(smallPrimes), std::end(smallPrimes), n0);
     auto it1 = std::lower_bound(std::begin(smallPrimes), std::end(smallPrimes), n1);
     if(it0 != std::end(smallPrimes)) {
 	if(it1 != std::end(smallPrimes)) {
-	    return std::vector<T>{it0, it1};
+	    return ff(it0, it1, nullptr);
 	} else {
 	    if(n1 <= smallPrimes.back() + 2) {
-		return std::vector<T>{it0, it1};
+		return ff(it0, it1, nullptr);
 	    }
 	    n0 = smallPrimes.back() + 2;
 	}
@@ -378,7 +362,7 @@ inner_sieve(SP const & smallPrimes, U n0, U n1)
     constexpr uint8_t dn[30] = {1,2,1,2,3,4,5,6,1,2,3,4,1,2,1,2,3,4,1,2,1,2,3,4,1,2,3,4,5,6};
     std::size_t ne = std::size_t(n1) - dn[n1 % 30];
     if(n0 > ne) {
-        return std::vector<T>{};
+        return ff(it0, it0, nullptr);
     }
     Bitmap bmp{n0, (ne - n0)/30 * 8 + ((ne % 30) >= (n0 % 30) ? (ne%30)*4/15 - (n0%30)*4/15 : 8 - (n0%30)*4/15 + (ne%30)*4/15) + 1};
 
@@ -411,7 +395,25 @@ inner_sieve(SP const & smallPrimes, U n0, U n1)
 	    bmp.reset(bmp.indexOf(c));
 	}
     }
-    return collectSieveResults<T>(it0, std::end(smallPrimes), bmp);
+    return ff(it0, std::end(smallPrimes), &bmp);
+}
+
+template <typename T, typename It>
+constexpr std::vector<T>
+collectSieveResults(It first, It last, Bitmap const * bmp)
+{
+    auto count = std::distance(first, last) + (bmp ? bmp->popcount() : 0);
+    if(!count) {
+	return std::vector<T>{};
+    }
+    std::vector<T> res;
+    res.reserve(count);
+    std::copy(first, last, std::back_inserter(res));
+    if(bmp) {
+        bmp->foreach_setbit([&res](auto, T p) { res.push_back(p); });
+    }
+
+    return res;
 }
 
 template <typename T>
@@ -419,75 +421,100 @@ constexpr std::vector<T>
 sieve16(uint16_t n0, uint16_t n1)
 {
     constexpr auto smallPrimes = u8primes<uint16_t>();
-    return inner_sieve<T>(smallPrimes, n0, n1);
+    return inner_sieve<T>(smallPrimes, n0, n1, collectSieveResults<T, decltype(std::begin(smallPrimes))>);
 }
+
+
+constexpr auto u16primes = []() {
+    std::array<uint16_t, sieve16<uint16_t>(0,65535).size()> u16primes;
+    std::ranges::copy(sieve16<uint16_t>(0,65535), std::begin(u16primes));
+    return u16primes;
+  }();
 
 template <typename T>
 constexpr std::vector<T>
 sieve32(uint32_t n0, uint32_t n1)
 {
-    constexpr auto u16primes = []() {
-        std::array<uint16_t, sieve16<uint16_t>(0,65535).size()> u16primes;
-        std::ranges::copy(sieve16<uint16_t>(0,65535), std::begin(u16primes));
-        return u16primes;
-      }();
-    return inner_sieve<T>(u16primes, n0, n1);
+    return inner_sieve<T>(u16primes, n0, n1, collectSieveResults<T, decltype(std::begin(u16primes))>);
 }
 
-
-int main(int , char**)
+uint32_t count_primes(uint32_t n0, uint32_t n1)
 {
-    static_assert(sieve16<uint32_t>(1,2) == std::vector<uint32_t>{}); 
-    static_assert(sieve16<uint32_t>(0, 6) == std::vector<uint32_t>{2,3,5});
-    static_assert(sieve16<uint16_t>(4, 17) == std::vector<uint16_t>{5,7,11,13});
-    static_assert(sieve16<uint16_t>(250,260) == std::vector<uint16_t>{251,257});
-    static_assert(sieve16<uint16_t>(240,400) == std::vector<uint16_t>{241, 251, 257, 263, 269, 271,
-		    277, 281, 283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 373,
-		    379, 383, 389, 397});
-    static_assert(sieve16<uint16_t>(250,259) == std::vector<uint16_t>{251,257});
-    static_assert(sieve16<uint32_t>(251,252) == std::vector<uint32_t>{251});
-    static_assert(sieve16<uint32_t>(251,253) == std::vector<uint32_t>{251});
-    static_assert(sieve16<uint32_t>(251,254) == std::vector<uint32_t>{251});
-    static_assert(sieve16<uint32_t>(251,255) == std::vector<uint32_t>{251});
-    static_assert(sieve16<uint32_t>(251,256) == std::vector<uint32_t>{251});
-    static_assert(sieve16<uint32_t>(251,257) == std::vector<uint32_t>{251});
-    static_assert(sieve16<uint32_t>(251,258) == std::vector<uint32_t>{251,257});
-    static_assert(sieve16<uint16_t>(256,277) == std::vector<uint16_t>{257, 263, 269, 271});
-    static_assert(sieve16<uint16_t>(498,525) == std::vector<uint16_t>{499, 503, 509, 521, 523});
-    static_assert(sieve16<uint16_t>(1202,1279) == std::vector<uint16_t>{1213, 1217, 1223, 1229, 1231, 1237, 1249, 1259,
-		    1277});
-    static_assert(sieve16<uint16_t>(3300,3391) == std::vector<uint16_t>{3301, 3307, 3313, 3319, 3323, 3329, 3331, 3343,
-		    3347, 3359, 3361, 3371, 3373, 3389});
-    static_assert(sieve16<uint16_t>(8192,8193) == std::vector<uint16_t>{});
-    static_assert(sieve16<uint16_t>(8190,8191) == std::vector<uint16_t>{});
-    static_assert(sieve16<uint16_t>(8190,8192) == std::vector<uint16_t>{8191});
-    static_assert(sieve16<uint16_t>(32767,32802) == std::vector<uint16_t>{32771, 32779, 32783, 32789, 32797, 32801});
-    static_assert(sieve16<uint16_t>(48300,48403) == std::vector<uint16_t>{48311, 48313, 48337, 48341, 48353, 48371,
-		    48383, 48397});
-    static_assert(sieve16<uint16_t>(65470,65535) == std::vector<uint16_t>{65479, 65497, 65519, 65521});
-    static_assert(sieve16<uint16_t>(65534,65535) == std::vector<uint16_t>{});
-    static_assert(sieve16<uint16_t>(65533,65535) == std::vector<uint16_t>{});
-    static_assert(sieve16<uint16_t>(65532,65535) == std::vector<uint16_t>{});
-    static_assert(sieve16<uint16_t>(0,65535).size() == 6542);
+    return inner_sieve<int32_t>(u16primes, n0, n1,
+	[](auto it0, auto it1, Bitmap const * bmp) {
+	    return int32_t(std::distance(it0, it1)) + (bmp ? int32_t(bmp->popcount()) : 0);
+        });
+}
 
-    static_assert(sieve32<uint32_t>(0, 3) == std::vector<uint32_t>{2});
-    static_assert(sieve32<uint32_t>(262121, 262144) == std::vector<uint32_t>{262121, 262127, 262133, 262139});
-    static_assert(sieve32<uint32_t>(1048576, 1048700) == std::vector<uint32_t>{1048583, 1048589, 1048601, 1048609,
-		    1048613, 1048627, 1048633, 1048661, 1048681});
-    static_assert(sieve32<uint32_t>(61075016, 61075116)  == std::vector<uint32_t>{61075019, 61075037, 61075057, 61075061,
-		    61075087, 61075099, 61075103, 61075109, 61075111});
-    static_assert(sieve32<uint32_t>(1074041825, 1074041924) == std::vector<uint32_t>{1074041849, 1074041869});
-    static_assert(sieve32<uint32_t>(4294967196, 4294967295) == std::vector<uint32_t>{4294967197, 4294967231,
-		    4294967279, 4294967291});
-    static_assert(sieve32<uint32_t>(4294967293, 4294967294) == std::vector<uint32_t>{});
-    static_assert(sieve32<uint32_t>(4294967294, 4294967295) == std::vector<uint32_t>{});
-    static_assert(sieve32<uint32_t>(2147483548, 2147483648) == std::vector<uint32_t>{2147483549, 2147483563,
-		    2147483579, 2147483587, 2147483629, 2147483647});
-    static_assert(sieve32<uint32_t>(3221225472, 3221225672) == std::vector<uint32_t>{3221225473, 3221225479,
-		    3221225533, 3221225549, 3221225551, 3221225561, 3221225563, 3221225599, 3221225617, 3221225641,
-		    3221225653, 3221225659, 3221225669});
-    static_assert(sieve32<uint32_t>(3221225474, 3221225503) == std::vector<uint32_t>{3221225479});
-    static_assert(sieve32<uint32_t>(3221224471, 3221225472).size() == 37);
+static_assert(sieve16<uint32_t>(1,2) == std::vector<uint32_t>{}); 
+static_assert(sieve16<uint32_t>(0, 6) == std::vector<uint32_t>{2,3,5});
+static_assert(sieve16<uint16_t>(4, 17) == std::vector<uint16_t>{5,7,11,13});
+static_assert(sieve16<uint16_t>(250,260) == std::vector<uint16_t>{251,257});
+static_assert(sieve16<uint16_t>(240,400) == std::vector<uint16_t>{241, 251, 257, 263, 269, 271,
+	    277, 281, 283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 373,
+	    379, 383, 389, 397});
+static_assert(sieve16<uint16_t>(250,259) == std::vector<uint16_t>{251,257});
+static_assert(sieve16<uint32_t>(251,252) == std::vector<uint32_t>{251});
+static_assert(sieve16<uint32_t>(251,253) == std::vector<uint32_t>{251});
+static_assert(sieve16<uint32_t>(251,254) == std::vector<uint32_t>{251});
+static_assert(sieve16<uint32_t>(251,255) == std::vector<uint32_t>{251});
+static_assert(sieve16<uint16_t>(250,259) == std::vector<uint16_t>{251,257});
+static_assert(sieve16<uint32_t>(251,252) == std::vector<uint32_t>{251});
+static_assert(sieve16<uint32_t>(251,253) == std::vector<uint32_t>{251});
+static_assert(sieve16<uint32_t>(251,254) == std::vector<uint32_t>{251});
+static_assert(sieve16<uint32_t>(251,255) == std::vector<uint32_t>{251});
+static_assert(sieve16<uint32_t>(251,256) == std::vector<uint32_t>{251});
+static_assert(sieve16<uint32_t>(251,257) == std::vector<uint32_t>{251});
+static_assert(sieve16<uint32_t>(251,258) == std::vector<uint32_t>{251,257});
+static_assert(sieve16<uint16_t>(256,277) == std::vector<uint16_t>{257, 263, 269, 271});
+static_assert(sieve16<uint16_t>(498,525) == std::vector<uint16_t>{499, 503, 509, 521, 523});
+static_assert(sieve16<uint16_t>(1202,1279) == std::vector<uint16_t>{1213, 1217, 1223, 1229, 1231, 1237, 1249, 1259,
+	    1277});
+static_assert(sieve16<uint16_t>(3300,3391) == std::vector<uint16_t>{3301, 3307, 3313, 3319, 3323, 3329, 3331, 3343,
+	    3347, 3359, 3361, 3371, 3373, 3389});
+static_assert(sieve16<uint16_t>(8192,8193) == std::vector<uint16_t>{});
+static_assert(sieve16<uint16_t>(8190,8191) == std::vector<uint16_t>{});
+static_assert(sieve16<uint16_t>(8190,8192) == std::vector<uint16_t>{8191});
+static_assert(sieve16<uint16_t>(32767,32802) == std::vector<uint16_t>{32771, 32779, 32783, 32789, 32797, 32801});
+static_assert(sieve16<uint16_t>(48300,48403) == std::vector<uint16_t>{48311, 48313, 48337, 48341, 48353, 48371,
+	    48383, 48397});
+static_assert(sieve16<uint16_t>(65470,65535) == std::vector<uint16_t>{65479, 65497, 65519, 65521});
+static_assert(sieve16<uint16_t>(65534,65535) == std::vector<uint16_t>{});
+static_assert(sieve16<uint16_t>(65533,65535) == std::vector<uint16_t>{});
+static_assert(sieve16<uint16_t>(65532,65535) == std::vector<uint16_t>{});
+static_assert(sieve16<uint16_t>(0,65535).size() == 6542);
 
+static_assert(sieve32<uint32_t>(0, 3) == std::vector<uint32_t>{2});
+static_assert(sieve32<uint32_t>(262121, 262144) == std::vector<uint32_t>{262121, 262127, 262133, 262139});
+static_assert(sieve32<uint32_t>(1048576, 1048700) == std::vector<uint32_t>{1048583, 1048589, 1048601, 1048609,
+	    1048613, 1048627, 1048633, 1048661, 1048681});
+static_assert(sieve32<uint32_t>(61075016, 61075116)  == std::vector<uint32_t>{61075019, 61075037, 61075057, 61075061,
+	    61075087, 61075099, 61075103, 61075109, 61075111});
+static_assert(sieve32<uint32_t>(1074041825, 1074041924) == std::vector<uint32_t>{1074041849, 1074041869});
+static_assert(sieve32<uint32_t>(4294967196, 4294967295) == std::vector<uint32_t>{4294967197, 4294967231,
+	    4294967279, 4294967291});
+static_assert(sieve32<uint32_t>(4294967293, 4294967294) == std::vector<uint32_t>{});
+static_assert(sieve32<uint32_t>(4294967294, 4294967295) == std::vector<uint32_t>{});
+static_assert(sieve32<uint32_t>(2147483548, 2147483648) == std::vector<uint32_t>{2147483549, 2147483563,
+	    2147483579, 2147483587, 2147483629, 2147483647});
+static_assert(sieve32<uint32_t>(3221225472, 3221225672) == std::vector<uint32_t>{3221225473, 3221225479,
+	    3221225533, 3221225549, 3221225551, 3221225561, 3221225563, 3221225599, 3221225617, 3221225641,
+	    3221225653, 3221225659, 3221225669});
+
+int main(int argc, char** argv)
+{
+    if(argc != 3) {
+	std::cerr << "Usage:\n\tlfp n0 n1" << std::endl;
+	return 1;
+    }
+    uint32_t n0, n1;
+    std::istringstream istr0{argv[1]};
+    istr0 >> n0;
+    std::istringstream istr1{argv[2]};
+    istr1 >> n1;
+
+    std::cout << "The number of prime numbers in range [" << n0 << ", " << n1 << "[ is "
+	   << count_primes(n0, n1) << "." << std::endl;
     return 0;
 }
+
