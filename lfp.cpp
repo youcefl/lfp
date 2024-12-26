@@ -17,6 +17,10 @@
 #include <bit>
 #include <ranges>
 #include <sstream>
+#include <chrono>
+#include <thread>
+#include <future>
+
 
 void gentable()
 {
@@ -438,7 +442,7 @@ sieve32(uint32_t n0, uint32_t n1)
     return inner_sieve<T>(u16primes, n0, n1, collectSieveResults<T, decltype(std::begin(u16primes))>);
 }
 
-uint32_t count_primes(uint32_t n0, uint32_t n1)
+int32_t count_primes(uint32_t n0, uint32_t n1)
 {
     return inner_sieve<int32_t>(u16primes, n0, n1,
 	[](auto it0, auto it1, Bitmap const * bmp) {
@@ -501,20 +505,67 @@ static_assert(sieve32<uint32_t>(3221225472, 3221225672) == std::vector<uint32_t>
 	    3221225533, 3221225549, 3221225551, 3221225561, 3221225563, 3221225599, 3221225617, 3221225641,
 	    3221225653, 3221225659, 3221225669});
 
+int32_t threaded_count_primes(int32_t numThreads, uint32_t n0, uint32_t n1)
+{
+    if(n0 >= n1) {
+	return 0;
+    }
+    if(numThreads == 0) {
+        numThreads = int32_t(std::thread::hardware_concurrency());
+    }
+    if(!numThreads) {
+        std::cerr << "Could not determine the number of concurrent threads supported, defaulting to 1." << std::endl;
+	numThreads = 1;
+    }
+    if(n1 - n0 < numThreads) {
+        return count_primes(n0, n1);
+    }
+    std::vector<std::future<int32_t>> results;
+    for(uint32_t k = n0, dk = (n1 - n0) / numThreads, ek = (n1 - n0) % numThreads; k < n1; ek = ek ? ek - 1 : 0) {
+	auto kmax = k + dk + (ek ? 1 : 0);
+	results.emplace_back(std::async(std::launch::async, count_primes, k, kmax));
+	k = kmax;
+    }
+    return std::accumulate(std::begin(results), std::end(results),
+		    int32_t{}, [](auto x, auto & y) { return x + y.get(); });
+}
+
+void displayUsage()
+{
+    std::cerr << "Usage:\n\tlfp [-t num_threads] n0 n1" << std::endl;
+}
+
 int main(int argc, char** argv)
 {
-    if(argc != 3) {
-	std::cerr << "Usage:\n\tlfp n0 n1" << std::endl;
+    if((argc != 3) && (argc != 5)) {
+	displayUsage();
 	return 1;
     }
+    int n0idx = 1, n1idx = 2;
+    int32_t numThreads{};
+    if(argc == 5) {
+	if(argv[1] != std::string{"-t"}) {
+	    displayUsage();
+	    return 1;
+	}
+	std::istringstream istr{argv[2]};
+	istr >> numThreads;
+	n0idx += 2;
+	n1idx += 2;
+    }
     uint32_t n0, n1;
-    std::istringstream istr0{argv[1]};
+    std::istringstream istr0{argv[n0idx]};
     istr0 >> n0;
-    std::istringstream istr1{argv[2]};
+    std::istringstream istr1{argv[n1idx]};
     istr1 >> n1;
 
+    auto const startt = std::chrono::steady_clock::now();
+    auto numPrimes = threaded_count_primes(numThreads, n0, n1);
+    auto const endt = std::chrono::steady_clock::now();
+    
     std::cout << "The number of prime numbers in range [" << n0 << ", " << n1 << "[ is "
-	   << count_primes(n0, n1) << "." << std::endl;
+	   << numPrimes << "." << std::endl;
+    std::cout << "Took " << std::chrono::duration<double>(endt - startt) << std::endl;
     return 0;
 }
 
