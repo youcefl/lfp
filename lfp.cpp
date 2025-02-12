@@ -394,9 +394,34 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff)
 	if(!c) {
 	    continue;
 	}
+
+	auto prevIdx = 0;
+	auto count = 0;
+	int32_t firstIndex = -1;
+	std::array<int,8> deltas{};
 	for(auto j = whoffs[(p%30)*4/15][cmod30*4/15]; c <= ne;
 	    c = ((c_max - c < wheel[(p%30)*4/15][j]*p) ? ne + 1 : c + wheel[(p%30)*4/15][j]*p), j = (j+1)%8) {
-	    bmp.reset(bmp.indexOf(c));
+	    auto currIdx = bmp.indexOf(c);
+	    if(!count) {
+		firstIndex = currIdx;
+	    }
+
+	    if(count > 0 && count < 9) {
+		    deltas[count - 1] = currIdx - prevIdx;
+	    }
+
+	    if(count == 8) {
+		break;
+	    }
+	    ++count;
+	    prevIdx = currIdx;
+	}
+	auto imax = bmp.indexOf(ne);
+	for(std::size_t i = ((firstIndex >= 0) ? firstIndex : imax + 1), j = 0; i <= imax; i += deltas[j], j = (j + 1) % 8) {
+	    bmp.reset(i);
+	    if(!deltas[j]) {
+		    break;
+	    }
 	}
     }
     return ff(it0, std::end(smallPrimes), &bmp);
@@ -450,6 +475,7 @@ int32_t count_primes(uint32_t n0, uint32_t n1)
         });
 }
 
+#ifndef DISABLE_STATIC_ASSERT_TESTS
 static_assert(sieve16<uint32_t>(1,2) == std::vector<uint32_t>{}); 
 static_assert(sieve16<uint32_t>(0, 6) == std::vector<uint32_t>{2,3,5});
 static_assert(sieve16<uint16_t>(4, 17) == std::vector<uint16_t>{5,7,11,13});
@@ -504,6 +530,8 @@ static_assert(sieve32<uint32_t>(2147483548, 2147483648) == std::vector<uint32_t>
 static_assert(sieve32<uint32_t>(3221225472, 3221225672) == std::vector<uint32_t>{3221225473, 3221225479,
 	    3221225533, 3221225549, 3221225551, 3221225561, 3221225563, 3221225599, 3221225617, 3221225641,
 	    3221225653, 3221225659, 3221225669});
+
+#endif
 
 int32_t threaded_count_primes(int32_t numThreads, uint32_t n0, uint32_t n1)
 {
