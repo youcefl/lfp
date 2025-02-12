@@ -120,7 +120,9 @@ void work()
 class Bitmap
 {
 public:
+    constexpr Bitmap() = default;
     explicit constexpr Bitmap(uint64_t n0, std::size_t size);
+    constexpr void assign(uint64_t n0, std::size_t size);
     constexpr std::size_t size() const;
     constexpr std::size_t indexOf(uint64_t val) const;
     constexpr void reset(std::size_t index);
@@ -146,6 +148,20 @@ Bitmap::Bitmap(uint64_t n0, std::size_t size)
   , size_(size)
   , n0_(n0 + d_[n0 % 30])
 {
+    if(size % NumLim::digits) {
+        vec_.back() &= (ElemType{1} << (size % NumLim::digits)) - 1;
+    }
+}
+
+constexpr
+void
+Bitmap::assign(uint64_t n0, std::size_t size)
+{
+    vec_.assign((size + NumLim::digits - 1)/NumLim::digits,
+            ~decltype(vec_)::value_type{});
+    size_ = size;
+    n0_ = n0 + d_[n0 % 30];
+
     if(size % NumLim::digits) {
         vec_.back() &= (ElemType{1} << (size % NumLim::digits)) - 1;
     }
@@ -343,7 +359,7 @@ constexpr std::array<T,54> u8primes()
 
 template <typename T, typename SP, typename U, typename Func>
 constexpr auto 
-inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff)
+inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp)
 {
     if((n0 >= n1) || (n0 > std::numeric_limits<U>::max() - 2)) {
         return ff(std::begin(smallPrimes), std::begin(smallPrimes), nullptr);
@@ -368,7 +384,7 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff)
     if(n0 > ne) {
         return ff(it0, it0, nullptr);
     }
-    Bitmap bmp{n0, (ne - n0)/30 * 8 + ((ne % 30) >= (n0 % 30) ? (ne%30)*4/15 - (n0%30)*4/15 : 8 - (n0%30)*4/15 + (ne%30)*4/15) + 1};
+    bmp.assign(n0, (ne - n0)/30 * 8 + ((ne % 30) >= (n0 % 30) ? (ne%30)*4/15 - (n0%30)*4/15 : 8 - (n0%30)*4/15 + (ne%30)*4/15) + 1);
 
     for(auto p : smallPrimes | std::views::drop(3)) {
 	auto p2 = U{p} * p;
@@ -450,7 +466,8 @@ constexpr std::vector<T>
 sieve16(uint16_t n0, uint16_t n1)
 {
     constexpr auto smallPrimes = u8primes<uint16_t>();
-    return inner_sieve<T>(smallPrimes, n0, n1, collectSieveResults<T, decltype(std::begin(smallPrimes))>);
+    Bitmap bmp;
+    return inner_sieve<T>(smallPrimes, n0, n1, collectSieveResults<T, decltype(std::begin(smallPrimes))>, bmp);
 }
 
 
@@ -464,15 +481,29 @@ template <typename T>
 constexpr std::vector<T>
 sieve32(uint32_t n0, uint32_t n1)
 {
-    return inner_sieve<T>(u16primes, n0, n1, collectSieveResults<T, decltype(std::begin(u16primes))>);
+    Bitmap bmp;
+    return inner_sieve<T>(u16primes, n0, n1, collectSieveResults<T, decltype(std::begin(u16primes))>, bmp);
 }
 
 int32_t count_primes(uint32_t n0, uint32_t n1)
 {
+#if 1
+    Bitmap bmp;
+    int32_t count = 0;
+    constexpr auto rangeSize = 24*1024*1024;
+    for(auto a0 = n0, a1 = std::min(n1, n0+rangeSize); a0 <= n1; a0 += rangeSize, a1 = std::min(a0+rangeSize, n1)) {
+        count += inner_sieve<int32_t>(u16primes, a0, a1,
+	[](auto it0, auto it1, Bitmap const * zbmp) {
+	    return int32_t(std::distance(it0, it1)) + (zbmp ? int32_t(zbmp->popcount()) : 0);
+	    }, bmp);
+    }
+    return count; 
+#else
     return inner_sieve<int32_t>(u16primes, n0, n1,
 	[](auto it0, auto it1, Bitmap const * bmp) {
 	    return int32_t(std::distance(it0, it1)) + (bmp ? int32_t(bmp->popcount()) : 0);
         });
+#endif
 }
 
 #ifndef DISABLE_STATIC_ASSERT_TESTS
