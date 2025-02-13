@@ -22,100 +22,6 @@
 #include <future>
 
 
-void gentable()
-{
-    int rz[] = {1,7,11,13,17,19,23,29};
-    int ps[] = {31,7,11,13,17,19,23,29};
-    uint8_t wheel[8][30]={};
-    for(auto p : ps) {
-        std::cout << "{";
-        auto j = 0;
-        for(auto n0 = p*p, n = n0; n - n0 < 30*p; n += 2*p) {
-            if(std::find(std::begin(rz), std::end(rz), std::gcd(n,30)) == std::end(rz)) {
-                continue;
-            }
-            //std::cout << " /*" << n % 30 << "*/ ";
-            wheel[(p%30)*4/15][n%30] = j++;
-            auto k = 2;
-            for(; std::find(std::begin(rz), std::end(rz), std::gcd(n + k*p,30)) == std::end(rz); k += 2) {
-            }
-            std::cout << k << ",";
-        }
-        std::cout << "}" << std::endl;
-    }
-    std::cout << std::endl;
-    for(auto i = 0; i < 8; ++i) {
-        std::cout << "{";
-        for(auto j : {1,7,11,13,17,19,23,29}) {
-            std::cout << int(wheel[i][j]) << ((j==29)?"":", ");
-        }
-        std::cout << ((i==7)?"}":"},") << std::endl;
-    }
-}
-
-void work()
-{
-    /*for(int i = 0; i < 30; ++i) {
-        if(std::gcd(i, 30) == 1) {
-            std::cout << ", " << i;
-        }
-    }
-    std::cout << std::endl;*/
-    std::array<int, 8> rz{1, 7, 11, 13, 17, 19, 23, 29};
-    std::map<int,int> tabl, atabl;
-    int z = 0;
-    for(int i = 30; i < 30000; i += 30) {
-        for(auto r : rz) {
-            atabl[z] = i + r;
-            tabl[i + r] = z++;
-        }
-    }
-/*    for (auto kv : tabl) {
-        std::cout << kv.first << " <-> " << kv.second << std::endl;
-    }*/
-    for(auto p : {7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43,
-                47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113}) {
-        std::cout << p << ": " << (p % 30) << " ";
-        auto c = p * p;
-        std::vector<int> delta, dk;
-        for(auto i = 0, j = 0, k = 0; i <= 90; i += 2) {
-            if(std::find(std::begin(rz), std::end(rz), (c + i * p) % 30) != std::end(rz)) {
-                //std::cout << " " << "[" << i << ", " << i - j << "]" << c + i * p;
-                std::cout << " [" << tabl[c + i * p] << "]:" << c + i*p
-                        << "(" << ((c + i * p) % 30) << ")"; 
-                if(i) {
-                    delta.push_back(tabl[c + i * p]-j);
-                    dk.push_back(i - k);
-                }
-                
-                j = tabl[c + i * p];
-                k = i;
-            }
-        }
-        std::cout << std::endl << p << ":" << (p < 10 ? " ": "") << "  ";
-        for(auto d : delta) {
-            std::cout << " " << d;
-        }
-        std::cout << std::endl << p << ":" << (p < 10 ? " ": "") << "  ";
-        for(auto d : dk) {
-            std::cout << " " << d;
-        }
-        std::cout << std::endl << p << ":" << (p < 10 ? " ": "") << "* ";
-        auto s = p * p;
-        //std::cout << " [" << (s == atabl[(s - 30) * 8 /30]) << "]";
-        for(auto d : dk) {
-            //std::cout << " [" << (atabl[(s + d*p - 30) * 8 /30] == s + d*p) << "]";
-            static const std::array<int,30> dst{0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7};
-            std::cout << " " << (s % 30 + d * p)*4/15 - 4*(s % 30)/15 << ":" << (s%30+d*p)*4/15 - dst[s % 30];
-            s += d * p;
-        }
-        std::cout << "\n" << std::endl;
-        delta.clear();
-        //std::cout << std::endl;
-    }
-    std::cout << "\n" << std::endl;
-}
-
 
 class Bitmap
 {
@@ -256,30 +162,6 @@ uint8_t Bitmap::at(std::size_t index) const
     return (vec_[index / NumLim::digits] & (ElemType{1} << (index % NumLim::digits))) ? 1 : 0;
 }
 
-/*
-1  {1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29}
-7  {19, 3, 17, 1, 15, 29, 13, 27, 11, 25, 9, 23, 7, 21, 5}
-11 {1, 23, 15, 7, 29, 21, 13, 5, 27, 19, 11, 3, 25, 17, 9}
-13 {19, 15, 11, 7, 3, 29, 25, 21, 17, 13, 9, 5, 1, 27, 23}
-17 {19, 23, 27, 1, 5, 9, 13, 17, 21, 25, 29, 3, 7, 11, 15}
-19 {1, 9, 17, 25, 3, 11, 19, 27, 5, 13, 21, 29, 7, 15, 23}
-23 {19, 5, 21, 7, 23, 9, 25, 11, 27, 13, 29, 15, 1, 17, 3}
-29 {1, 29, 27, 25, 23, 21, 19, 17, 15, 13, 11, 9, 7, 5, 3}
-*/
-
-uint8_t jt[8][30] =
-{
-    // 1   3   5   7   9  11  13  15  17  19  21  23  25  27  29
-    {0,6,0,4,0,2,0,4,0,2,0,2,0,4,0,2,0,2,0,4,0,2,0,6,0,4,0,2,0,2},
-    {0,4,0,2,0,2,0,6,0,2,0,6,0,4,0,2,0,2,0,4,0,4,0,2,0,4,0,2,0,2},
-    {0,2,0,4,0,4,0,2,0,2,0,6,0,6,0,2,0,4,0,2,0,2,0,4,0,2,0,2,0,4},
-    {0,4,0,2,0,2,0,4,0,4,0,2,0,6,0,2,0,2,0,4,0,2,0,2,0,4,0,2,0,6},
-    {0,6,0,2,0,4,0,2,0,2,0,4,0,2,0,2,0,6,0,2,0,4,0,4,0,2,0,2,0,4},
-    {0,4,0,2,0,2,0,4,0,2,0,2,0,4,0,2,0,6,0,6,0,2,0,2,0,4,0,4,0,2},
-    {0,2,0,2,0,4,0,2,0,4,0,4,0,2,0,2,0,4,0,6,0,2,0,6,0,2,0,2,0,4},
-    {0,2,0,2,0,4,0,6,0,2,0,4,0,2,0,2,0,4,0,2,0,2,0,4,0,2,0,4,0,6}
-};
-
 constexpr int8_t adjt[8][14] = {
 {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
 {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
@@ -312,38 +194,6 @@ constexpr uint8_t whoffs[8][8] = {
 {0, 7, 6, 5, 4, 3, 2, 1}    
 };
 
-void shortjt() {
-    for(int i = 0; i < 8; ++i) {
-        std::cout << "{";
-        for(auto j : {0,3,5,6,9,10,12,15,16,18,21,22,25,27}) {
-            std::cout << int(jt[i][j]) << ((j==27)?"":", ");
-        }
-        std::cout << "}," << std::endl;
-    }
-}
-
-void tbitmap()
-{
-    Bitmap bmp{6,32768};
-    auto numFailures = 0;
-    auto k = 0;
-    for(auto i = 0; i < 6000; i+=30) {
-        for(auto j : {1,7,11,13,17,19,23,29}) {
-            if(i+j < 6) {
-                continue;
-            }
-            auto idx = bmp.indexOf(i + j);
-            if(idx != k) {
-                std::cerr << "Failure for " << i+j 
-                    << ", expected index: " << k << ", actual: " << idx << std::endl;
-                ++numFailures;
-            }
-            ++k;
-        }
-    }
-    std::cout << numFailures << " failure(s)" << std::endl;
-}
-
 template <typename T>
 constexpr std::array<T,54> u8primes()
 {
@@ -356,6 +206,23 @@ constexpr std::array<T,54> u8primes()
         233, 239, 241, 251};
 }
 
+// Returns the smallest integer coprime to 30 and greater than or equal to @param n0
+template <typename Ret, typename U>
+constexpr
+Ret compute_gte_coprime(U n0)
+{
+    constexpr uint8_t dn0[30] = {1,0,5,4,3,2,1,0,3,2,1,0,1,0,3,2,1,0,1,0,3,2,1,0,5,4,3,2,1,0};
+    return Ret{n0} + dn0[n0 % 30];
+}
+
+// Returns the largest ineteger coprime to 30 and less than @param n1
+template <typename Ret, typename U>
+constexpr
+Ret compute_lt_coprime(U n1)
+{
+    constexpr uint8_t dn[30] = {1,2,1,2,3,4,5,6,1,2,3,4,1,2,1,2,3,4,1,2,1,2,3,4,1,2,3,4,5,6};
+    return Ret{n1} - dn[n1 % 30];
+}
 
 template <typename T, typename SP, typename U, typename Func>
 constexpr auto 
@@ -377,10 +244,8 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp)
 	    n0 = smallPrimes.back() + 2;
 	}
     }
-    constexpr uint8_t dn0[30] = {1,0,5,4,3,2,1,0,3,2,1,0,1,0,3,2,1,0,1,0,3,2,1,0,5,4,3,2,1,0};
-    n0 = n0 + dn0[n0 % 30];
-    constexpr uint8_t dn[30] = {1,2,1,2,3,4,5,6,1,2,3,4,1,2,1,2,3,4,1,2,1,2,3,4,1,2,3,4,5,6};
-    std::size_t ne = std::size_t(n1) - dn[n1 % 30];
+    n0 = compute_gte_coprime<U>(n0);
+    auto ne = compute_lt_coprime<std::size_t>(n1);
     if(n0 > ne) {
         return ff(it0, it0, nullptr);
     }
@@ -432,8 +297,8 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp)
 	    ++count;
 	    prevIdx = currIdx;
 	}
-	auto imax = bmp.indexOf(ne);
-	for(std::size_t i = ((firstIndex >= 0) ? firstIndex : imax + 1), j = 0; i <= imax; i += deltas[j], j = (j + 1) % 8) {
+
+	for(std::size_t i = ((firstIndex >= 0) ? firstIndex : bmp.size()), j = 0; i < bmp.size(); i += deltas[j], j = (j + 1) % 8) {
 	    bmp.reset(i);
 	    if(!deltas[j]) {
 		    break;
@@ -487,7 +352,6 @@ sieve32(uint32_t n0, uint32_t n1)
 
 int32_t count_primes(uint32_t n0, uint32_t n1)
 {
-#if 1
     Bitmap bmp;
     int32_t count = 0;
     constexpr auto rangeSize = 24*1024*1024;
@@ -498,12 +362,6 @@ int32_t count_primes(uint32_t n0, uint32_t n1)
 	    }, bmp);
     }
     return count; 
-#else
-    return inner_sieve<int32_t>(u16primes, n0, n1,
-	[](auto it0, auto it1, Bitmap const * bmp) {
-	    return int32_t(std::distance(it0, it1)) + (bmp ? int32_t(bmp->popcount()) : 0);
-        });
-#endif
 }
 
 #ifndef DISABLE_STATIC_ASSERT_TESTS
