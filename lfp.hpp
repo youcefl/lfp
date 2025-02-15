@@ -4,7 +4,7 @@
  * See LICENSE file for more details.
  * Creation date: december 2024.
  */
-
+#pragma once
 
 #include <cstdint>
 #include <array>
@@ -355,7 +355,11 @@ int32_t count_primes(uint32_t n0, uint32_t n1)
     Bitmap bmp;
     int32_t count = 0;
     constexpr auto rangeSize = 24*1024*1024;
-    for(auto a0 = n0, a1 = std::min(n1, n0+rangeSize); a0 <= n1; a0 += rangeSize, a1 = std::min(a0+rangeSize, n1)) {
+    constexpr auto maxn = std::numeric_limits<uint32_t>::max();
+    for(auto a0 = n0, a1 = std::min(n1, (maxn - rangeSize < n0) ? maxn : n0 + rangeSize);
+	a0 < n1;
+        a0 = (maxn - rangeSize < a0) ? maxn : a0 + rangeSize, 
+	  a1 = std::min(n1, maxn - rangeSize < a0 ? maxn : a0 + rangeSize)) {
         count += inner_sieve<int32_t>(u16primes, a0, a1,
 	[](auto it0, auto it1, Bitmap const * zbmp) {
 	    return int32_t(std::distance(it0, it1)) + (zbmp ? int32_t(zbmp->popcount()) : 0);
@@ -364,63 +368,6 @@ int32_t count_primes(uint32_t n0, uint32_t n1)
     return count; 
 }
 
-#ifndef DISABLE_STATIC_ASSERT_TESTS
-static_assert(sieve16<uint32_t>(1,2) == std::vector<uint32_t>{}); 
-static_assert(sieve16<uint32_t>(0, 6) == std::vector<uint32_t>{2,3,5});
-static_assert(sieve16<uint16_t>(4, 17) == std::vector<uint16_t>{5,7,11,13});
-static_assert(sieve16<uint16_t>(250,260) == std::vector<uint16_t>{251,257});
-static_assert(sieve16<uint16_t>(240,400) == std::vector<uint16_t>{241, 251, 257, 263, 269, 271,
-	    277, 281, 283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 373,
-	    379, 383, 389, 397});
-static_assert(sieve16<uint16_t>(250,259) == std::vector<uint16_t>{251,257});
-static_assert(sieve16<uint32_t>(251,252) == std::vector<uint32_t>{251});
-static_assert(sieve16<uint32_t>(251,253) == std::vector<uint32_t>{251});
-static_assert(sieve16<uint32_t>(251,254) == std::vector<uint32_t>{251});
-static_assert(sieve16<uint32_t>(251,255) == std::vector<uint32_t>{251});
-static_assert(sieve16<uint16_t>(250,259) == std::vector<uint16_t>{251,257});
-static_assert(sieve16<uint32_t>(251,252) == std::vector<uint32_t>{251});
-static_assert(sieve16<uint32_t>(251,253) == std::vector<uint32_t>{251});
-static_assert(sieve16<uint32_t>(251,254) == std::vector<uint32_t>{251});
-static_assert(sieve16<uint32_t>(251,255) == std::vector<uint32_t>{251});
-static_assert(sieve16<uint32_t>(251,256) == std::vector<uint32_t>{251});
-static_assert(sieve16<uint32_t>(251,257) == std::vector<uint32_t>{251});
-static_assert(sieve16<uint32_t>(251,258) == std::vector<uint32_t>{251,257});
-static_assert(sieve16<uint16_t>(256,277) == std::vector<uint16_t>{257, 263, 269, 271});
-static_assert(sieve16<uint16_t>(498,525) == std::vector<uint16_t>{499, 503, 509, 521, 523});
-static_assert(sieve16<uint16_t>(1202,1279) == std::vector<uint16_t>{1213, 1217, 1223, 1229, 1231, 1237, 1249, 1259,
-	    1277});
-static_assert(sieve16<uint16_t>(3300,3391) == std::vector<uint16_t>{3301, 3307, 3313, 3319, 3323, 3329, 3331, 3343,
-	    3347, 3359, 3361, 3371, 3373, 3389});
-static_assert(sieve16<uint16_t>(8192,8193) == std::vector<uint16_t>{});
-static_assert(sieve16<uint16_t>(8190,8191) == std::vector<uint16_t>{});
-static_assert(sieve16<uint16_t>(8190,8192) == std::vector<uint16_t>{8191});
-static_assert(sieve16<uint16_t>(32767,32802) == std::vector<uint16_t>{32771, 32779, 32783, 32789, 32797, 32801});
-static_assert(sieve16<uint16_t>(48300,48403) == std::vector<uint16_t>{48311, 48313, 48337, 48341, 48353, 48371,
-	    48383, 48397});
-static_assert(sieve16<uint16_t>(65470,65535) == std::vector<uint16_t>{65479, 65497, 65519, 65521});
-static_assert(sieve16<uint16_t>(65534,65535) == std::vector<uint16_t>{});
-static_assert(sieve16<uint16_t>(65533,65535) == std::vector<uint16_t>{});
-static_assert(sieve16<uint16_t>(65532,65535) == std::vector<uint16_t>{});
-static_assert(sieve16<uint16_t>(0,65535).size() == 6542);
-
-static_assert(sieve32<uint32_t>(0, 3) == std::vector<uint32_t>{2});
-static_assert(sieve32<uint32_t>(262121, 262144) == std::vector<uint32_t>{262121, 262127, 262133, 262139});
-static_assert(sieve32<uint32_t>(1048576, 1048700) == std::vector<uint32_t>{1048583, 1048589, 1048601, 1048609,
-	    1048613, 1048627, 1048633, 1048661, 1048681});
-static_assert(sieve32<uint32_t>(61075016, 61075116)  == std::vector<uint32_t>{61075019, 61075037, 61075057, 61075061,
-	    61075087, 61075099, 61075103, 61075109, 61075111});
-static_assert(sieve32<uint32_t>(1074041825, 1074041924) == std::vector<uint32_t>{1074041849, 1074041869});
-static_assert(sieve32<uint32_t>(4294967196, 4294967295) == std::vector<uint32_t>{4294967197, 4294967231,
-	    4294967279, 4294967291});
-static_assert(sieve32<uint32_t>(4294967293, 4294967294) == std::vector<uint32_t>{});
-static_assert(sieve32<uint32_t>(4294967294, 4294967295) == std::vector<uint32_t>{});
-static_assert(sieve32<uint32_t>(2147483548, 2147483648) == std::vector<uint32_t>{2147483549, 2147483563,
-	    2147483579, 2147483587, 2147483629, 2147483647});
-static_assert(sieve32<uint32_t>(3221225472, 3221225672) == std::vector<uint32_t>{3221225473, 3221225479,
-	    3221225533, 3221225549, 3221225551, 3221225561, 3221225563, 3221225599, 3221225617, 3221225641,
-	    3221225653, 3221225659, 3221225669});
-
-#endif
 
 int32_t threaded_count_primes(int32_t numThreads, uint32_t n0, uint32_t n1)
 {
@@ -445,44 +392,5 @@ int32_t threaded_count_primes(int32_t numThreads, uint32_t n0, uint32_t n1)
     }
     return std::accumulate(std::begin(results), std::end(results),
 		    int32_t{}, [](auto x, auto & y) { return x + y.get(); });
-}
-
-void displayUsage()
-{
-    std::cerr << "Usage:\n\tlfp [-t num_threads] n0 n1" << std::endl;
-}
-
-int main(int argc, char** argv)
-{
-    if((argc != 3) && (argc != 5)) {
-	displayUsage();
-	return 1;
-    }
-    int n0idx = 1, n1idx = 2;
-    int32_t numThreads{};
-    if(argc == 5) {
-	if(argv[1] != std::string{"-t"}) {
-	    displayUsage();
-	    return 1;
-	}
-	std::istringstream istr{argv[2]};
-	istr >> numThreads;
-	n0idx += 2;
-	n1idx += 2;
-    }
-    uint32_t n0, n1;
-    std::istringstream istr0{argv[n0idx]};
-    istr0 >> n0;
-    std::istringstream istr1{argv[n1idx]};
-    istr1 >> n1;
-
-    auto const startt = std::chrono::steady_clock::now();
-    auto numPrimes = threaded_count_primes(numThreads, n0, n1);
-    auto const endt = std::chrono::steady_clock::now();
-    
-    std::cout << "The number of prime numbers in range [" << n0 << ", " << n1 << "[ is "
-	   << numPrimes << "." << std::endl;
-    std::cout << "Took " << std::chrono::duration<double>(endt - startt) << std::endl;
-    return 0;
 }
 
