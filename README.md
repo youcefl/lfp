@@ -32,7 +32,6 @@ The following table gives an idea of the performances to expect from the sieve:
 | [0, 10^9[    | 1       | 0.59s                   | 
 | [0, 2*10^9[  | 1       | 1.22s                   | 
 | [0, 4*10^9[  | 1       | 2.5s                    |
-|--------------|---------|-------------------------|
 
 These timings were measured on a Intel(R) Xeon(R) CPU E5-2686 v4 @ 2.30GHz which was otherwise idle.
 
