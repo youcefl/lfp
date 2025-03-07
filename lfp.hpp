@@ -22,7 +22,8 @@
 #include <future>
 
 
-
+namespace lfp {
+namespace details {
 class Bitmap
 {
 public:
@@ -100,7 +101,8 @@ constexpr
 uint64_t
 Bitmap::popcount() const
 {
-    return std::transform_reduce(std::begin(vec_), std::end(vec_), 0, std::plus{}, [](auto v){ return std::popcount(v);});
+    return std::transform_reduce(std::begin(vec_), std::end(vec_), 0, std::plus{},
+		    [](auto v){ return std::popcount(v);});
 }
 
 template <typename Func>
@@ -163,35 +165,36 @@ uint8_t Bitmap::at(std::size_t index) const
 }
 
 constexpr int8_t adjt[8][14] = {
-{0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
-{0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
-{0, 4, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 2},
-{0, 2, 2, 0, 4, 0, 0, 2, 0, 0, 2, 0, 4, 2},
-{0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 4, 0, 2, 2},
-{0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 4},
-{0, 2, 4, 0, 4, 0, 0, 2, 0, 0, 2, 0, 2, 2},
-{0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}};
+    {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
+    {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
+    {0, 4, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 2},
+    {0, 2, 2, 0, 4, 0, 0, 2, 0, 0, 2, 0, 4, 2},
+    {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 4, 0, 2, 2},
+    {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 4},
+    {0, 2, 4, 0, 4, 0, 0, 2, 0, 0, 2, 0, 2, 2},
+    {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}
+};
 
 constexpr uint8_t wheel[8][8] = {
-{6,4,2,4,2,4,6,2},
-{4,2,4,2,4,6,2,6},
-{2,4,2,4,6,2,6,4},
-{4,2,4,6,2,6,4,2},
-{2,4,6,2,6,4,2,4},
-{4,6,2,6,4,2,4,2},
-{6,2,6,4,2,4,2,4},
-{2,6,4,2,4,2,4,6}
+    {6,4,2,4,2,4,6,2},
+    {4,2,4,2,4,6,2,6},
+    {2,4,2,4,6,2,6,4},
+    {4,2,4,6,2,6,4,2},
+    {2,4,6,2,6,4,2,4},
+    {4,6,2,6,4,2,4,2},
+    {6,2,6,4,2,4,2,4},
+    {2,6,4,2,4,2,4,6}
 };
 
 constexpr uint8_t whoffs[8][8] = {
-{0, 1, 2, 3, 4, 5, 6, 7},
-{2, 7, 5, 4, 1, 0, 6, 3},
-{0, 2, 6, 4, 7, 5, 1, 3},
-{6, 2, 1, 5, 4, 0, 7, 3},
-{2, 6, 7, 3, 4, 0, 1, 5},
-{0, 6, 2, 4, 1, 3, 7, 5},
-{6, 1, 3, 4, 7, 0, 2, 5},
-{0, 7, 6, 5, 4, 3, 2, 1}    
+    {0, 1, 2, 3, 4, 5, 6, 7},
+    {2, 7, 5, 4, 1, 0, 6, 3},
+    {0, 2, 6, 4, 7, 5, 1, 3},
+    {6, 2, 1, 5, 4, 0, 7, 3},
+    {2, 6, 7, 3, 4, 0, 1, 5},
+    {0, 6, 2, 4, 1, 3, 7, 5},
+    {6, 1, 3, 4, 7, 0, 2, 5},
+    {0, 7, 6, 5, 4, 3, 2, 1}    
 };
 
 template <typename T>
@@ -211,7 +214,9 @@ template <typename Ret, typename U>
 constexpr
 Ret compute_gte_coprime(U n0)
 {
-    constexpr uint8_t dn0[30] = {1,0,5,4,3,2,1,0,3,2,1,0,1,0,3,2,1,0,1,0,3,2,1,0,5,4,3,2,1,0};
+    constexpr uint8_t dn0[30] = {
+	    1, 0, 5, 4, 3, 2, 1, 0, 3, 2, 1, 0, 1, 0, 3,
+	    2, 1, 0, 1, 0, 3, 2, 1, 0, 5, 4, 3, 2, 1, 0};
     return Ret{n0} + dn0[n0 % 30];
 }
 
@@ -220,7 +225,9 @@ template <typename Ret, typename U>
 constexpr
 Ret compute_lt_coprime(U n1)
 {
-    constexpr uint8_t dn[30] = {1,2,1,2,3,4,5,6,1,2,3,4,1,2,1,2,3,4,1,2,1,2,3,4,1,2,3,4,5,6};
+    constexpr uint8_t dn[30] = {
+	    1, 2, 1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 1, 2, 1,
+	    2, 3, 4, 1, 2, 1, 2, 3, 4, 1, 2, 3, 4, 5, 6};
     return Ret{n1} - dn[n1 % 30];
 }
 
@@ -326,33 +333,38 @@ collectSieveResults(It first, It last, Bitmap const * bmp)
     return res;
 }
 
+} // namespace details
+
 template <typename T>
 constexpr std::vector<T>
 sieve16(uint16_t n0, uint16_t n1)
 {
-    constexpr auto smallPrimes = u8primes<uint16_t>();
-    Bitmap bmp;
-    return inner_sieve<T>(smallPrimes, n0, n1, collectSieveResults<T, decltype(std::begin(smallPrimes))>, bmp);
+    constexpr auto smallPrimes = details::u8primes<uint16_t>();
+    details::Bitmap bmp;
+    return details::inner_sieve<T>(smallPrimes, n0, n1,
+		    details::collectSieveResults<T, decltype(std::begin(smallPrimes))>, bmp);
 }
 
-
+namespace details {
 constexpr auto u16primes = []() {
     std::array<uint16_t, sieve16<uint16_t>(0,65535).size()> u16primes;
     std::ranges::copy(sieve16<uint16_t>(0,65535), std::begin(u16primes));
     return u16primes;
   }();
+}
 
 template <typename T>
 constexpr std::vector<T>
 sieve32(uint32_t n0, uint32_t n1)
 {
-    Bitmap bmp;
-    return inner_sieve<T>(u16primes, n0, n1, collectSieveResults<T, decltype(std::begin(u16primes))>, bmp);
+    details::Bitmap bmp;
+    return details::inner_sieve<T>(details::u16primes, n0, n1,
+		    details::collectSieveResults<T, decltype(std::begin(details::u16primes))>, bmp);
 }
 
 int32_t count_primes(uint32_t n0, uint32_t n1)
 {
-    Bitmap bmp;
+    details::Bitmap bmp;
     int32_t count = 0;
     constexpr auto rangeSize = 24*1024*1024;
     constexpr auto maxn = std::numeric_limits<uint32_t>::max();
@@ -360,8 +372,8 @@ int32_t count_primes(uint32_t n0, uint32_t n1)
 	a0 < n1;
         a0 = (maxn - rangeSize < a0) ? maxn : a0 + rangeSize, 
 	  a1 = std::min(n1, maxn - rangeSize < a0 ? maxn : a0 + rangeSize)) {
-        count += inner_sieve<int32_t>(u16primes, a0, a1,
-	[](auto it0, auto it1, Bitmap const * zbmp) {
+        count += details::inner_sieve<int32_t>(details::u16primes, a0, a1,
+	[](auto it0, auto it1, details::Bitmap const * zbmp) {
 	    return int32_t(std::distance(it0, it1)) + (zbmp ? int32_t(zbmp->popcount()) : 0);
 	    }, bmp);
     }
@@ -393,4 +405,6 @@ int32_t threaded_count_primes(int32_t numThreads, uint32_t n0, uint32_t n1)
     return std::accumulate(std::begin(results), std::end(results),
 		    int32_t{}, [](auto x, auto & y) { return x + y.get(); });
 }
+
+} // namespace lfp
 

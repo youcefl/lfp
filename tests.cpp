@@ -7,6 +7,9 @@
 #include "catch2/catch_test_macros.hpp"
 #include "lfp.hpp"
 
+using lfp::count_primes;
+using lfp::sieve16;
+using lfp::sieve32;
 
 TEST_CASE("Sieve of Erathostenes - small primes 1") {
     REQUIRE(count_primes(0, 1) == 0);

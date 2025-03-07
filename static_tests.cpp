@@ -7,6 +7,10 @@
 #include "lfp.hpp"
 
 #ifndef DISABLE_STATIC_ASSERT_TESTS
+
+using lfp::sieve16;
+using lfp::sieve32;
+
 static_assert(sieve16<uint32_t>(1,2) == std::vector<uint32_t>{});
 static_assert(sieve16<uint32_t>(0, 6) == std::vector<uint32_t>{2,3,5});
 static_assert(sieve16<uint16_t>(4, 17) == std::vector<uint16_t>{5,7,11,13});
