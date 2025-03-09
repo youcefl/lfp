@@ -135,3 +135,13 @@ TEST_CASE("Sieve of Erathostenes - list primes - 4") {
     REQUIRE(sieve32<uint32_t>(4'294'967'200, 4'294'967'295) == primes_by_division<uint32_t>(4'294'967'200, 4'294'967'295));
 }
 
+
+TEST_CASE("Primes iterator - 1") {
+    using namespace lfp;
+    using namespace lfp::details;
+    Bitmap bmp;
+    inner_sieve<uint32_t>(u8primes<uint32_t>(), 300u, 400u, [](auto, auto, auto) {}, bmp);
+    PrimesIterator<uint32_t> it{bmp}, ite{bmp, true};
+    REQUIRE(std::vector<uint32_t>{it, ite} == primes_by_division<uint32_t>(300, 400));
+}
+

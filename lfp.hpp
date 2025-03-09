@@ -23,7 +23,11 @@
 
 
 namespace lfp {
+
+template <typename T> class PrimesIterator;
+
 namespace details {
+
 class Bitmap
 {
 public:
@@ -40,12 +44,17 @@ public:
     constexpr void foreach_setbit(Func ff) const;
 
 private:
+    template <typename Int> static constexpr std::size_t indexInResidues(Int);
     std::vector<uint64_t> vec_;
     std::size_t size_;
     uint64_t n0_;
     static constexpr std::array<int,30> d_{1,0,5,4,3,2,1,0,3,2,1,0,1,0,3,2,1,0,1,0,3,2,1,0,5,4,3,2,1,0};
+    static constexpr std::array<int,8> residues_{1,7,11,13,17,19,23,29};
+    static constexpr std::array<int,8> deltas_{6,4,2,4,2,4,6,2};
     using ElemType = decltype(vec_)::value_type;
     using NumLim = std::numeric_limits<ElemType>;
+
+    template <typename T> friend class lfp::PrimesIterator;
 };
 
 constexpr
@@ -110,18 +119,25 @@ constexpr
 void
 Bitmap::foreach_setbit(Func ff) const
 {
-    constexpr int rez[] = {1,7,11,13,17,19,23,29};
-    constexpr int d[] = {6,4,2,4,2,4,6,2};
     auto k = 0;
     auto c = n0_;
-    for(auto i = std::distance(std::begin(rez), std::find(std::begin(rez), std::end(rez), n0_ % 30));
+    for(auto i = indexInResidues(n0_);
         k < size();
-        c += d[i], i = (i+1)%8, ++k) {
+        c += deltas_[i], i = (i + 1) % 8, ++k) {
 	if(at(k)) {
 	    ff(k, c);
 	}
     }
 }
+
+template <typename Int>
+constexpr
+std::size_t
+Bitmap::indexInResidues(Int x)
+{
+    return std::distance(std::begin(residues_), std::find(std::begin(residues_), std::end(residues_), x % 30));
+}
+
 
 void
 Bitmap::check() const
@@ -163,6 +179,10 @@ uint8_t Bitmap::at(std::size_t index) const
 {
     return (vec_[index / NumLim::digits] & (ElemType{1} << (index % NumLim::digits))) ? 1 : 0;
 }
+
+
+
+
 
 constexpr int8_t adjt[8][14] = {
     {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
@@ -335,6 +355,110 @@ collectSieveResults(It first, It last, Bitmap const * bmp)
 
 } // namespace details
 
+
+template <typename T>
+class PrimesIterator
+{
+public:
+    using value_type = T;
+    using difference_type = std::ptrdiff_t;
+    using reference = value_type const &;
+    using pointer = value_type const *;
+    using iterator_category = std::forward_iterator_tag;
+
+    explicit constexpr PrimesIterator(details::Bitmap & bmp, bool isEnd = false);
+    constexpr T operator*() const;
+    constexpr PrimesIterator& operator++();
+    constexpr PrimesIterator operator++(int);
+    constexpr bool operator==(PrimesIterator const &) const;
+    constexpr bool operator!=(PrimesIterator const &) const;
+
+private:
+    constexpr void next();
+
+    details::Bitmap & bmp_;
+    std::size_t index_;
+    T current_value_;
+    std::size_t i_;
+    bool is_first_;
+};
+
+
+template <typename T>
+constexpr
+PrimesIterator<T>::PrimesIterator(details::Bitmap & bmp, bool isEnd)
+    : bmp_(bmp)
+    , index_(0)
+    , current_value_(bmp.n0_)
+    , i_(details::Bitmap::indexInResidues(current_value_))
+    , is_first_(true)
+{
+    if(!isEnd) {
+        next();
+    } else {
+	index_ = bmp_.size();
+    }
+}
+
+template <typename T>
+constexpr void
+PrimesIterator<T>::next()
+{
+    if(!is_first_ && index_ < bmp_.size()) {
+	current_value_ += details::Bitmap::deltas_[i_],
+	  i_ = (i_ + 1) % 8, ++index_;
+    }
+    for(; index_ < bmp_.size();
+        current_value_ += details::Bitmap::deltas_[i_],
+	  i_ = (i_ + 1) % 8, ++index_) {
+	if(bmp_.at(index_)) {
+	    is_first_ = false;
+	    break;
+	}
+    }
+}
+
+template <typename T>
+constexpr
+T PrimesIterator<T>::operator*() const
+{
+    return current_value_;
+}
+
+
+template <typename T>
+constexpr
+PrimesIterator<T> & PrimesIterator<T>::operator++()
+{
+    next();
+    return *this;
+}
+
+template <typename T>
+constexpr
+PrimesIterator<T> PrimesIterator<T>::operator++(int)
+{
+    PrimesIterator<T> tmp{*this};
+    ++(*this);
+    return tmp;
+}
+
+
+template <typename T>
+constexpr
+bool PrimesIterator<T>::operator==(PrimesIterator<T> const & other) const
+{
+    return (&bmp_ == &other.bmp_) && (index_ == other.index_);
+}
+
+template <typename T>
+constexpr
+bool PrimesIterator<T>::operator!=(PrimesIterator<T> const & other) const
+{
+    return !(*this == other);
+}
+
+
 template <typename T>
 constexpr std::vector<T>
 sieve16(uint16_t n0, uint16_t n1)
@@ -360,6 +484,27 @@ sieve32(uint32_t n0, uint32_t n1)
     details::Bitmap bmp;
     return details::inner_sieve<T>(details::u16primes, n0, n1,
 		    details::collectSieveResults<T, decltype(std::begin(details::u16primes))>, bmp);
+}
+
+template <typename T>
+constexpr std::vector<T>
+sieve(uint64_t n0, uint64_t n1)
+{
+    constexpr uint32_t rangeSize = 24*1024*1024;
+    constexpr auto maxUint32 = std::numeric_limits<uint32_t>::max(); 
+    for(uint32_t m0 = 6, m1 = rangeSize;
+        uint64_t{m0} * m0 <= n1;
+	m0 = m1, 
+	   m1 = (maxUint32 - m1 >= rangeSize) ? m1 + rangeSize : maxUint32) {
+	details::Bitmap bmp;
+	details::inner_sieve<uint32_t>(details::u16primes, m0, m1,
+	  [](auto it0, auto it1, details::Bitmap const * zbmp){
+	      // I need a way to turn [it0, it1) + the bitmap into a single iterator that can be given to inner_sieve
+	      // to have that I need to:
+	      //  -  be able to pass a span instead of a collection of primes (first param)
+	      //  - have an iterator built upon Bitmap instance (are you sure? positive?)
+	  }, bmp);
+    }
 }
 
 int32_t count_primes(uint32_t n0, uint32_t n1)
