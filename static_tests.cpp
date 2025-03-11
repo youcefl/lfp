@@ -10,6 +10,7 @@
 
 using lfp::sieve16;
 using lfp::sieve32;
+using lfp::sieve;
 
 static_assert(sieve16<uint32_t>(1,2) == std::vector<uint32_t>{});
 static_assert(sieve16<uint32_t>(0, 6) == std::vector<uint32_t>{2,3,5});
@@ -65,6 +66,8 @@ static_assert(sieve32<uint32_t>(2147483548, 2147483648) == std::vector<uint32_t>
 static_assert(sieve32<uint32_t>(3221225472, 3221225672) == std::vector<uint32_t>{3221225473, 3221225479,
 	    3221225533, 3221225549, 3221225551, 3221225561, 3221225563, 3221225599, 3221225617, 3221225641,
 	    3221225653, 3221225659, 3221225669});
+
+//static_assert(sieve<int32_t>(0, 100) == sieve32<int32_t>(0, 100));
 
 #endif
 
