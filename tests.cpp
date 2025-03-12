@@ -146,6 +146,9 @@ TEST_CASE("Primes iterator - 1") {
 
 
     REQUIRE(sieve<int64_t>(0ull, 100ull) == primes_by_division<int64_t>(0ull, 100ull));
-    REQUIRE(sieve<int64_t>(1ull << 37, (1ull << 37)+100) == std::vector<int64_t>{137438953481, 137438953501, 137438953513, 137438953541, 137438953567});
+    REQUIRE(sieve<int64_t>(1ull << 37, (1ull << 37) + 100) ==
+		    std::vector<int64_t>{137438953481, 137438953501, 137438953513, 137438953541, 137438953567});
+    REQUIRE(sieve<int64_t>(1ull << 43, (1ull << 43) + 200) ==
+		    primes_by_division<int64_t>(1ull << 43, (1ull << 43) + 200));
 }
 

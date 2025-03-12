@@ -493,9 +493,9 @@ sieve32(uint32_t n0, uint32_t n1)
 		    details::collectSieveResults<T>, bmp);
 }
 
-template <typename T>
-constexpr std::vector<T>
-sieve(uint64_t n0, uint64_t n1)
+template <typename T, typename Fct>
+constexpr auto
+sieve64(uint64_t n0, uint64_t n1, Fct ff)
 {
     std::vector<details::Bitmap> bitmaps;
     std::vector<T> prefix;
@@ -533,12 +533,22 @@ sieve(uint64_t n0, uint64_t n1)
 		     },  currBmp, initBmp);
 	}
     }
-    std::vector<T> ret{prefix};
-    std::for_each(std::begin(bitmaps), std::end(bitmaps), [&ret](auto & bmp) {
-	ret.insert(ret.end(), PrimesIterator<T>{&bmp}, PrimesIterator<T>{&bmp, true});
-     });
-    return ret;
+    return ff(prefix, bitmaps);
 }
+
+template <typename T>
+constexpr std::vector<T>
+sieve(uint64_t n0, uint64_t n1)
+{
+    return sieve64<T>(n0, n1, [](auto prefix, std::vector<details::Bitmap> & bitmaps) {
+        std::vector<T> ret{prefix};
+        std::for_each(std::begin(bitmaps), std::end(bitmaps), [&ret](auto & bmp) {
+	     ret.insert(ret.end(), PrimesIterator<T>{&bmp}, PrimesIterator<T>{&bmp, true});
+           });
+        return ret;
+    });
+}
+
 
 int32_t count_primes(uint32_t n0, uint32_t n1)
 {
