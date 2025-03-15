@@ -136,19 +136,30 @@ TEST_CASE("Sieve of Erathostenes - list primes - 4") {
 }
 
 
-TEST_CASE("Primes iterator - 1") {
+TEST_CASE("Primes iterator") {
     using namespace lfp;
     using namespace lfp::details;
-    Bitmap bmp;
-    inner_sieve<uint32_t>(u8primes<uint32_t>(), 300u, 400u, [](auto, auto, auto) {}, bmp);
-    PrimesIterator<uint32_t> it{&bmp}, ite{&bmp, true};
-    REQUIRE(std::vector<uint32_t>{it, ite} == primes_by_division<uint32_t>(300, 400));
+    {
+        Bitmap bmp;
+        inner_sieve<uint32_t>(u8primes<uint8_t>(), 300u, 400u, [](auto, auto, auto) {}, bmp);
+        PrimesIterator<uint32_t> it{&bmp}, ite{&bmp, true};
+        REQUIRE(std::vector<uint32_t>{it, ite} == primes_by_division<uint32_t>(300, 400));
+    }
+    {
+	Bitmap bmp;
+	inner_sieve<int32_t>(u16primes, 10000u, 12000u, [](auto, auto, auto) {}, bmp);
+        PrimesIterator<int32_t> it{&bmp}, ite{&bmp, true};
+        REQUIRE(std::vector<int32_t>{it, ite} == primes_by_division<int32_t>(10000, 12000));	
+    }
+}
 
-
-    REQUIRE(sieve<int64_t>(0ull, 100ull) == primes_by_division<int64_t>(0ull, 100ull));
-    REQUIRE(sieve<int64_t>(1ull << 37, (1ull << 37) + 100) ==
+TEST_CASE("Sieve of Ertathostenes - above 2^32 - 1") {
+    REQUIRE(lfp::sieve_to_vector<int64_t>(300ull, 400ull) == primes_by_division<int64_t>(300ull, 400ull));
+    REQUIRE(lfp::sieve_to_vector<int64_t>(1ull << 37, (1ull << 37) + 100) ==
 		    std::vector<int64_t>{137438953481, 137438953501, 137438953513, 137438953541, 137438953567});
-    REQUIRE(sieve<int64_t>(1ull << 43, (1ull << 43) + 200) ==
+    REQUIRE(lfp::sieve_to_vector<int64_t>(1ull << 43, (1ull << 43) + 200) ==
 		    primes_by_division<int64_t>(1ull << 43, (1ull << 43) + 200));
 }
+
+
 
