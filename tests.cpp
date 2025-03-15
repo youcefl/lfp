@@ -159,6 +159,11 @@ TEST_CASE("Sieve of Ertathostenes - above 2^32 - 1") {
 		    std::vector<int64_t>{137438953481, 137438953501, 137438953513, 137438953541, 137438953567});
     REQUIRE(lfp::sieve_to_vector<int64_t>(1ull << 43, (1ull << 43) + 200) ==
 		    primes_by_division<int64_t>(1ull << 43, (1ull << 43) + 200));
+    REQUIRE(lfp::sieve_to_vector<int64_t>(1ull << 44, (1ull << 44) + 400) ==
+	    std::vector<int64_t>{17592186044423, 17592186044437, 17592186044443, 17592186044471, 17592186044591,
+		    17592186044611, 17592186044651, 17592186044659, 17592186044747, 17592186044767, 17592186044813});
+    REQUIRE(lfp::sieve_to_vector<int64_t>(1ull << 50, (1ull << 50) + 1000) ==
+		    primes_by_division<int64_t>(1ull << 50, (1ull << 50) + 1000)); 
 }
 
 
