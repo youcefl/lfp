@@ -565,12 +565,14 @@ public:
     constexpr SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap>&& bitmaps);
     // Returns a range suitable for iterating over the prime numbers resulting from the sieve
     constexpr auto range();
+    constexpr std::size_t count();
 private:
     std::vector<T> prefix_;
     std::vector<details::Bitmap> bmps_;
     std::vector<decltype(std::ranges::subrange(details::IterW<T>{}, details::IterW<T>{}))> ranges_;
     decltype(ranges_ | std::views::join | std::views::common) vranges_;
     bool isRangesInitialized_;
+    std::size_t count_;
 };
 
 template <typename T>
@@ -580,6 +582,7 @@ constexpr SieveResults<T>::SieveResults(std::vector<T>&& prefix, std::vector<det
     , ranges_()
     , vranges_(ranges_ | std::views::join | std::views::common)
     , isRangesInitialized_(false)
+    , count_(0)
 {}
 
 template <typename T>
@@ -600,6 +603,20 @@ constexpr auto SieveResults<T>::range()
     vranges_ = ranges_ | std::views::join | std::views::common;
     isRangesInitialized_ = true;
     return vranges_;
+}
+
+template <typename T>
+constexpr std::size_t SieveResults<T>::count()
+{
+    if(count_) {
+	return count_;
+    }
+    count_ = std::distance(std::begin(prefix_), std::end(prefix_)) +
+	    std::accumulate(std::begin(bmps_), std::end(bmps_), std::size_t{},
+		[](auto x, auto const & bmp) {
+		    return x + bmp.popcount();
+		});
+    return count_;
 }
 
 template <typename T>
