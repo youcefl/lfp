@@ -20,8 +20,13 @@
 #include <chrono>
 #include <thread>
 #include <future>
+#include <variant>
 
 
+namespace lfp {
+namespace details {
+
+template <typename T> class PrimesIterator;
 
 class Bitmap
 {
@@ -39,12 +44,17 @@ public:
     constexpr void foreach_setbit(Func ff) const;
 
 private:
+    template <typename Int> static constexpr std::size_t indexInResidues(Int);
     std::vector<uint64_t> vec_;
     std::size_t size_;
     uint64_t n0_;
     static constexpr std::array<int,30> d_{1,0,5,4,3,2,1,0,3,2,1,0,1,0,3,2,1,0,1,0,3,2,1,0,5,4,3,2,1,0};
+    static constexpr std::array<int,8> residues_{1,7,11,13,17,19,23,29};
+    static constexpr std::array<int,8> deltas_{6,4,2,4,2,4,6,2};
     using ElemType = decltype(vec_)::value_type;
     using NumLim = std::numeric_limits<ElemType>;
+
+    template <typename T> friend class PrimesIterator;
 };
 
 constexpr
@@ -100,7 +110,8 @@ constexpr
 uint64_t
 Bitmap::popcount() const
 {
-    return std::transform_reduce(std::begin(vec_), std::end(vec_), 0, std::plus{}, [](auto v){ return std::popcount(v);});
+    return std::transform_reduce(std::begin(vec_), std::end(vec_), 0, std::plus{},
+		    [](auto v){ return std::popcount(v);});
 }
 
 template <typename Func>
@@ -108,18 +119,25 @@ constexpr
 void
 Bitmap::foreach_setbit(Func ff) const
 {
-    constexpr int rez[] = {1,7,11,13,17,19,23,29};
-    constexpr int d[] = {6,4,2,4,2,4,6,2};
     auto k = 0;
     auto c = n0_;
-    for(auto i = std::distance(std::begin(rez), std::find(std::begin(rez), std::end(rez), n0_ % 30));
+    for(auto i = indexInResidues(n0_);
         k < size();
-        c += d[i], i = (i+1)%8, ++k) {
+        c += deltas_[i], i = (i + 1) % 8, ++k) {
 	if(at(k)) {
 	    ff(k, c);
 	}
     }
 }
+
+template <typename Int>
+constexpr
+std::size_t
+Bitmap::indexInResidues(Int x)
+{
+    return std::distance(std::begin(residues_), std::find(std::begin(residues_), std::end(residues_), x % 30));
+}
+
 
 void
 Bitmap::check() const
@@ -162,36 +180,41 @@ uint8_t Bitmap::at(std::size_t index) const
     return (vec_[index / NumLim::digits] & (ElemType{1} << (index % NumLim::digits))) ? 1 : 0;
 }
 
+
+
+
+
 constexpr int8_t adjt[8][14] = {
-{0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
-{0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
-{0, 4, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 2},
-{0, 2, 2, 0, 4, 0, 0, 2, 0, 0, 2, 0, 4, 2},
-{0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 4, 0, 2, 2},
-{0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 4},
-{0, 2, 4, 0, 4, 0, 0, 2, 0, 0, 2, 0, 2, 2},
-{0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}};
+    {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
+    {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
+    {0, 4, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 2},
+    {0, 2, 2, 0, 4, 0, 0, 2, 0, 0, 2, 0, 4, 2},
+    {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 4, 0, 2, 2},
+    {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 4},
+    {0, 2, 4, 0, 4, 0, 0, 2, 0, 0, 2, 0, 2, 2},
+    {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}
+};
 
 constexpr uint8_t wheel[8][8] = {
-{6,4,2,4,2,4,6,2},
-{4,2,4,2,4,6,2,6},
-{2,4,2,4,6,2,6,4},
-{4,2,4,6,2,6,4,2},
-{2,4,6,2,6,4,2,4},
-{4,6,2,6,4,2,4,2},
-{6,2,6,4,2,4,2,4},
-{2,6,4,2,4,2,4,6}
+    {6,4,2,4,2,4,6,2},
+    {4,2,4,2,4,6,2,6},
+    {2,4,2,4,6,2,6,4},
+    {4,2,4,6,2,6,4,2},
+    {2,4,6,2,6,4,2,4},
+    {4,6,2,6,4,2,4,2},
+    {6,2,6,4,2,4,2,4},
+    {2,6,4,2,4,2,4,6}
 };
 
 constexpr uint8_t whoffs[8][8] = {
-{0, 1, 2, 3, 4, 5, 6, 7},
-{2, 7, 5, 4, 1, 0, 6, 3},
-{0, 2, 6, 4, 7, 5, 1, 3},
-{6, 2, 1, 5, 4, 0, 7, 3},
-{2, 6, 7, 3, 4, 0, 1, 5},
-{0, 6, 2, 4, 1, 3, 7, 5},
-{6, 1, 3, 4, 7, 0, 2, 5},
-{0, 7, 6, 5, 4, 3, 2, 1}    
+    {0, 1, 2, 3, 4, 5, 6, 7},
+    {2, 7, 5, 4, 1, 0, 6, 3},
+    {0, 2, 6, 4, 7, 5, 1, 3},
+    {6, 2, 1, 5, 4, 0, 7, 3},
+    {2, 6, 7, 3, 4, 0, 1, 5},
+    {0, 6, 2, 4, 1, 3, 7, 5},
+    {6, 1, 3, 4, 7, 0, 2, 5},
+    {0, 7, 6, 5, 4, 3, 2, 1}    
 };
 
 template <typename T>
@@ -211,7 +234,9 @@ template <typename Ret, typename U>
 constexpr
 Ret compute_gte_coprime(U n0)
 {
-    constexpr uint8_t dn0[30] = {1,0,5,4,3,2,1,0,3,2,1,0,1,0,3,2,1,0,1,0,3,2,1,0,5,4,3,2,1,0};
+    constexpr uint8_t dn0[30] = {
+	    1, 0, 5, 4, 3, 2, 1, 0, 3, 2, 1, 0, 1, 0, 3,
+	    2, 1, 0, 1, 0, 3, 2, 1, 0, 5, 4, 3, 2, 1, 0};
     return Ret{n0} + dn0[n0 % 30];
 }
 
@@ -220,28 +245,34 @@ template <typename Ret, typename U>
 constexpr
 Ret compute_lt_coprime(U n1)
 {
-    constexpr uint8_t dn[30] = {1,2,1,2,3,4,5,6,1,2,3,4,1,2,1,2,3,4,1,2,1,2,3,4,1,2,3,4,5,6};
+    constexpr uint8_t dn[30] = {
+	    1, 2, 1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 1, 2, 1,
+	    2, 3, 4, 1, 2, 1, 2, 3, 4, 1, 2, 3, 4, 5, 6};
     return Ret{n1} - dn[n1 % 30];
 }
 
+template <typename T>
+inline constexpr std::array<T,3> primesBelowSix = {2, 3, 5};
+
 template <typename T, typename SP, typename U, typename Func>
 constexpr auto 
-inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp)
+inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool initBmp = true)
 {
+    auto const & tinyPrimes = primesBelowSix<T>;
     if((n0 >= n1) || (n0 > std::numeric_limits<U>::max() - 2)) {
-        return ff(std::begin(smallPrimes), std::begin(smallPrimes), nullptr);
+        return ff(std::begin(tinyPrimes), std::begin(tinyPrimes), nullptr);
     }
 
-    auto it0 = std::lower_bound(std::begin(smallPrimes), std::end(smallPrimes), n0);
-    auto it1 = std::lower_bound(std::begin(smallPrimes), std::end(smallPrimes), n1);
-    if(it0 != std::end(smallPrimes)) {
-	if(it1 != std::end(smallPrimes)) {
+    auto it0 = std::lower_bound(std::begin(tinyPrimes), std::end(tinyPrimes), n0);
+    auto it1 = std::lower_bound(std::begin(tinyPrimes), std::end(tinyPrimes), n1);
+    if(it0 != std::end(tinyPrimes)) {
+	if(it1 != std::end(tinyPrimes)) {
 	    return ff(it0, it1, nullptr);
 	} else {
-	    if(n1 <= smallPrimes.back() + 2) {
+	    if(n1 <= tinyPrimes.back() + 2) {
 		return ff(it0, it1, nullptr);
 	    }
-	    n0 = smallPrimes.back() + 2;
+	    n0 = tinyPrimes.back() + 2;
 	}
     }
     n0 = compute_gte_coprime<U>(n0);
@@ -249,9 +280,11 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp)
     if(n0 > ne) {
         return ff(it0, it0, nullptr);
     }
-    bmp.assign(n0, (ne - n0)/30 * 8 + ((ne % 30) >= (n0 % 30) ? (ne%30)*4/15 - (n0%30)*4/15 : 8 - (n0%30)*4/15 + (ne%30)*4/15) + 1);
+    if(initBmp) {
+        bmp.assign(n0, (ne - n0)/30 * 8 + ((ne % 30) >= (n0 % 30) ? (ne%30)*4/15 - (n0%30)*4/15 : 8 - (n0%30)*4/15 + (ne%30)*4/15) + 1);
+    }
 
-    for(auto p : smallPrimes | std::views::drop(3)) {
+    for(auto p : smallPrimes | std::views::drop_while([](auto p) { return (p==2)||(p==3)||(p==5); })) {
 	auto p2 = U{p} * p;
 	if(p2 > ne) {
 	    break;
@@ -305,10 +338,10 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp)
 	    }
 	}
     }
-    return ff(it0, std::end(smallPrimes), &bmp);
+    return ff(it0, std::end(tinyPrimes), &bmp);
 }
 
-template <typename T, typename It>
+template <typename T, typename It = decltype(std::array<T,3>{}.cbegin())>
 constexpr std::vector<T>
 collectSieveResults(It first, It last, Bitmap const * bmp)
 {
@@ -326,33 +359,363 @@ collectSieveResults(It first, It last, Bitmap const * bmp)
     return res;
 }
 
+// Proxy iterator iterating over a Bitmap instance allowing enumeration of the corresponding prime numbers 
+template <typename T>
+class PrimesIterator
+{
+public:
+    using value_type = T;
+    using difference_type = std::ptrdiff_t;
+    using reference = value_type;
+    using const_reference = const reference;
+    using pointer = void;
+    using iterator_category = std::input_iterator_tag;
+
+    explicit constexpr PrimesIterator(details::Bitmap * bmp, bool isEnd = false);
+    constexpr PrimesIterator() =  default;
+    constexpr T operator*() const;
+    constexpr T operator*();
+    constexpr PrimesIterator& operator++();
+    constexpr PrimesIterator operator++(int);
+    constexpr bool operator==(PrimesIterator const &) const;
+    constexpr bool operator!=(PrimesIterator const &) const;
+
+private:
+    constexpr void next();
+
+    Bitmap * bmp_;
+    std::size_t index_;
+    T current_value_;
+    std::size_t i_;
+    bool is_first_;
+};
+
+template <typename T>
+constexpr
+PrimesIterator<T>::PrimesIterator(details::Bitmap * bmp, bool isEnd)
+    : bmp_(bmp)
+    , index_(0)
+    , current_value_(bmp->n0_)
+    , i_(details::Bitmap::indexInResidues(current_value_))
+    , is_first_(true)
+{
+    if(!isEnd) {
+        next();
+    } else {
+	index_ = bmp_->size();
+    }
+}
+
+template <typename T>
+constexpr void
+PrimesIterator<T>::next()
+{
+    if(!is_first_ && (index_ < bmp_->size())) {
+	current_value_ += details::Bitmap::deltas_[i_],
+	  i_ = (i_ + 1) % 8, ++index_;
+    }
+    for(; index_ < bmp_->size();
+        current_value_ += details::Bitmap::deltas_[i_],
+	  i_ = (i_ + 1) % 8, ++index_) {
+	if(bmp_->at(index_)) {
+	    is_first_ = false;
+	    break;
+	}
+    }
+}
+
+template <typename T>
+constexpr
+T PrimesIterator<T>::operator*() const
+{
+    return current_value_;
+}
+
+template <typename T>
+constexpr
+T PrimesIterator<T>::operator*()
+{
+    return current_value_;
+}
+
+
+template <typename T>
+constexpr
+PrimesIterator<T> & PrimesIterator<T>::operator++()
+{
+    next();
+    return *this;
+}
+
+template <typename T>
+constexpr
+PrimesIterator<T> PrimesIterator<T>::operator++(int)
+{
+    PrimesIterator<T> tmp{*this};
+    ++(*this);
+    return tmp;
+}
+
+template <typename T>
+constexpr
+bool PrimesIterator<T>::operator==(PrimesIterator<T> const & other) const
+{
+    return (bmp_ == other.bmp_) && (index_ == other.index_);
+}
+
+template <typename T>
+constexpr
+bool PrimesIterator<T>::operator!=(PrimesIterator<T> const & other) const
+{
+    return !(*this == other);
+}
+
+// Iterator wrapper, this exist solely because C++20 does not have std::views::concat.
+// It wraps different kind of iterators in order to be able to call std::views::join
+template <typename T>
+struct IterW
+{
+    using iterator_category = std::input_iterator_tag;
+    using reference = T;
+    using const_reference = T;
+    using pointer = void;
+    using difference_type = std::ptrdiff_t;
+    using value_type = T;
+
+    constexpr IterW() = default;
+    constexpr explicit IterW(typename std::vector<T>::iterator);
+    constexpr explicit IterW(PrimesIterator<T>);
+ 
+    constexpr T operator*();
+    constexpr T operator*() const;
+    constexpr IterW& operator++();
+    constexpr IterW operator++(int);
+    constexpr bool operator==(IterW const& other) const;
+    constexpr bool operator!=(IterW const& other) const;
+
+private:
+    std::variant<typename std::vector<T>::iterator, PrimesIterator<T>> it_;
+};
+
+
+template <typename T>
+constexpr
+IterW<T>::IterW(typename std::vector<T>::iterator vecIter)
+    : it_(vecIter)
+{}
+
+template <typename T>
+constexpr
+IterW<T>::IterW(PrimesIterator<T> myIter)
+    : it_(myIter)
+{}
+
+template <typename T>
+constexpr
+T IterW<T>::operator*()
+{
+    return std::visit([](auto&& z) -> T { return *z; }, it_);
+}
+
+template <typename T>
+constexpr
+T IterW<T>::operator*() const
+{
+    return std::visit([](auto&& z) -> T { return *z; }, it_);
+}
+
+template <typename T>
+constexpr
+IterW<T>& IterW<T>::operator++()
+{
+    std::visit([](auto&& z){ ++z; }, it_);
+    return *this;
+}
+
+template <typename T>
+constexpr
+IterW<T> IterW<T>::operator++(int)
+{
+    auto tmp = *this;
+    ++(*this);
+    return tmp;
+}
+
+template <typename T>
+constexpr
+bool IterW<T>::operator==(IterW<T> const& other) const
+{
+    return it_ == other.it_;
+}
+
+template <typename T>
+constexpr
+bool IterW<T>::operator!=(IterW<T> const& other) const
+{
+    return it_ != other.it_;
+}
+
+} // namespace details
+
+/// Class holding sieve results
+template<typename T>
+class SieveResults
+{
+public:
+    constexpr SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap>&& bitmaps);
+    // Returns a range suitable for iterating over the prime numbers resulting from the sieve
+    constexpr auto range();
+    constexpr std::size_t count();
+private:
+    std::vector<T> prefix_;
+    std::vector<details::Bitmap> bmps_;
+    std::vector<decltype(std::ranges::subrange(details::IterW<T>{}, details::IterW<T>{}))> ranges_;
+    decltype(ranges_ | std::views::join | std::views::common) vranges_;
+    bool isRangesInitialized_;
+    std::size_t count_;
+};
+
+template <typename T>
+constexpr SieveResults<T>::SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap> && bitmaps)
+    : prefix_(std::move(prefix))
+    , bmps_(std::move(bitmaps))
+    , ranges_()
+    , vranges_(ranges_ | std::views::join | std::views::common)
+    , isRangesInitialized_(false)
+    , count_(0)
+{}
+
+template <typename T>
+constexpr auto SieveResults<T>::range()
+{
+    if(isRangesInitialized_) {
+	return vranges_;
+    }
+    ranges_.reserve(bmps_.size() + prefix_.empty() ? 0 : 1);
+    if(!prefix_.empty()) {
+	ranges_.push_back(std::ranges::subrange(details::IterW<T>{prefix_.begin()},
+			details::IterW<T>{prefix_.end()}));
+    }
+    std::for_each(std::begin(bmps_), std::end(bmps_), [this](auto & bmp) {
+        ranges_.push_back(std::ranges::subrange(details::IterW<T>{details::PrimesIterator<T>{&bmp}}, 
+			   details::IterW<T>{details::PrimesIterator<T>{&bmp, true}}));
+      });
+    vranges_ = ranges_ | std::views::join | std::views::common;
+    isRangesInitialized_ = true;
+    return vranges_;
+}
+
+template <typename T>
+constexpr std::size_t SieveResults<T>::count()
+{
+    if(count_) {
+	return count_;
+    }
+    count_ = std::distance(std::begin(prefix_), std::end(prefix_)) +
+	    std::accumulate(std::begin(bmps_), std::end(bmps_), std::size_t{},
+		[](auto x, auto const & bmp) {
+		    return x + bmp.popcount();
+		});
+    return count_;
+}
+
 template <typename T>
 constexpr std::vector<T>
 sieve16(uint16_t n0, uint16_t n1)
 {
-    constexpr auto smallPrimes = u8primes<uint16_t>();
-    Bitmap bmp;
-    return inner_sieve<T>(smallPrimes, n0, n1, collectSieveResults<T, decltype(std::begin(smallPrimes))>, bmp);
+    constexpr auto smallPrimes = details::u8primes<uint16_t>();
+    details::Bitmap bmp;
+    return details::inner_sieve<T>(smallPrimes, n0, n1,
+		    details::collectSieveResults<T>, bmp);
 }
 
-
+namespace details {
 constexpr auto u16primes = []() {
     std::array<uint16_t, sieve16<uint16_t>(0,65535).size()> u16primes;
     std::ranges::copy(sieve16<uint16_t>(0,65535), std::begin(u16primes));
     return u16primes;
   }();
+}
 
 template <typename T>
 constexpr std::vector<T>
 sieve32(uint32_t n0, uint32_t n1)
 {
-    Bitmap bmp;
-    return inner_sieve<T>(u16primes, n0, n1, collectSieveResults<T, decltype(std::begin(u16primes))>, bmp);
+    details::Bitmap bmp;
+    return details::inner_sieve<T>(details::u16primes, n0, n1,
+		    details::collectSieveResults<T>, bmp);
 }
+
+namespace impl {
+
+template <typename T, typename Fct>
+constexpr auto
+sieve(uint64_t n0, uint64_t n1, Fct ff)
+{
+    std::vector<details::Bitmap> bitmaps;
+    std::vector<T> prefix;
+    constexpr uint32_t rangeSize = 24*1024*1024;
+    constexpr auto maxUint32 = std::numeric_limits<uint32_t>::max(); 
+    for(uint32_t m0 = 0, m1 = rangeSize;
+        uint64_t{m0} * m0 <= n1;
+	m0 = m1, 
+	   m1 = (maxUint32 - m1 >= rangeSize) ? m1 + rangeSize : maxUint32) {
+	details::Bitmap primesBmp;
+	details::inner_sieve<uint32_t>(details::u16primes, m0, m1,
+	  [](auto, auto, details::Bitmap const * zbmp){
+	  }, primesBmp);
+	details::PrimesIterator<uint32_t> itP{&primesBmp}, itPe{&primesBmp, true};
+	auto basePrimesRange = std::ranges::subrange(itP, itPe);
+	constexpr auto maxn = std::numeric_limits<uint64_t>::max();
+	int k = 0;
+        for(auto a0 = n0, a1 = std::min(n1, (maxn - rangeSize < n0) ? maxn : n0 + rangeSize);
+	    a0 < n1;
+            a0 = (maxn - rangeSize < a0) ? maxn : a0 + rangeSize, 
+	      a1 = std::min(n1, maxn - rangeSize < a0 ? maxn : a0 + rangeSize),
+	      ++k) {
+            bool initBmp = false;
+	    if(bitmaps.size() == k) {
+                bitmaps.push_back(details::Bitmap{});
+		initBmp = true;
+	    }
+	    auto & currBmp = bitmaps[k];
+	    details::inner_sieve<T>(basePrimesRange, a0, a1,
+	             [&](auto it, auto ite, details::Bitmap const*){
+		         if(it != ite) {
+			     prefix = std::vector<T>{it, ite};
+			 }
+		         return 0;
+		     },  currBmp, initBmp);
+	}
+    }
+    return ff(prefix, bitmaps);
+}
+
+} // namespace impl
+
+template <typename T>
+constexpr SieveResults<T>
+sieve(uint64_t n0, uint64_t n1)
+{
+    return impl::sieve<T>(n0, n1,
+	       [](auto & prefix, std::vector<details::Bitmap> & bitmaps) {
+                   return SieveResults<T>{std::move(prefix), std::move(bitmaps)};
+               });
+}
+
+template <typename T>
+constexpr std::vector<T>
+sieve_to_vector(uint64_t n0, uint64_t n1)
+{
+   auto res = sieve<T>(n0, n1);
+   auto rng = res.range();
+   return std::vector<T>(rng.begin(), rng.end());
+}
+
 
 int32_t count_primes(uint32_t n0, uint32_t n1)
 {
-    Bitmap bmp;
+    details::Bitmap bmp;
     int32_t count = 0;
     constexpr auto rangeSize = 24*1024*1024;
     constexpr auto maxn = std::numeric_limits<uint32_t>::max();
@@ -360,8 +723,8 @@ int32_t count_primes(uint32_t n0, uint32_t n1)
 	a0 < n1;
         a0 = (maxn - rangeSize < a0) ? maxn : a0 + rangeSize, 
 	  a1 = std::min(n1, maxn - rangeSize < a0 ? maxn : a0 + rangeSize)) {
-        count += inner_sieve<int32_t>(u16primes, a0, a1,
-	[](auto it0, auto it1, Bitmap const * zbmp) {
+        count += details::inner_sieve<int32_t>(details::u16primes, a0, a1,
+	[](auto it0, auto it1, details::Bitmap const * zbmp) {
 	    return int32_t(std::distance(it0, it1)) + (zbmp ? int32_t(zbmp->popcount()) : 0);
 	    }, bmp);
     }
@@ -393,4 +756,6 @@ int32_t threaded_count_primes(int32_t numThreads, uint32_t n0, uint32_t n1)
     return std::accumulate(std::begin(results), std::end(results),
 		    int32_t{}, [](auto x, auto & y) { return x + y.get(); });
 }
+
+} // namespace lfp
 
