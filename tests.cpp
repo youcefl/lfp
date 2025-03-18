@@ -67,65 +67,65 @@ EqualsMatcher<T> equals(T const & target)
 
 
 TEST_CASE("Sieve of Erathostenes - small primes 1") {
-    CHECK_THAT(count_primes(0, 1), equals(0));
-    CHECK_THAT(count_primes(0, 2), equals(0));
-    CHECK_THAT(count_primes(0, 3), equals(1));
-    CHECK_THAT(count_primes(0, 4), equals(2));
-    CHECK_THAT(count_primes(0, 5), equals(2));
-    CHECK_THAT(count_primes(0, 6), equals(3));
+    CHECK_THAT(count_primes(0u, 1u), equals(0));
+    CHECK_THAT(count_primes(0u, 2u), equals(0));
+    CHECK_THAT(count_primes(0u, 3u), equals(1));
+    CHECK_THAT(count_primes(0u, 4u), equals(2));
+    CHECK_THAT(count_primes(0u, 5u), equals(2));
+    CHECK_THAT(count_primes(0u, 6u), equals(3));
 }
 
 
 TEST_CASE("Sieve of Erathostenes - small primes 2") {
-    CHECK_THAT(count_primes(10, 23), equals(4));
-    CHECK_THAT(count_primes(0, 101), equals(25));
-    CHECK_THAT(count_primes(13, 50), equals(10));
-    CHECK_THAT(count_primes(100, 131), equals(6));
+    CHECK_THAT(count_primes(10u, 23u), equals(4));
+    CHECK_THAT(count_primes(0u, 101u), equals(25));
+    CHECK_THAT(count_primes(13u, 50u), equals(10));
+    CHECK_THAT(count_primes(100u, 131u), equals(6));
 }
 
 
 TEST_CASE("Sieve of Erathostenes - larger primes 1") {
-    CHECK_THAT(count_primes(0, 1000), equals(168));
-    CHECK_THAT(count_primes(0, 10000), equals(1229));
-    CHECK_THAT(count_primes(0, 65536), equals(6542));
-    CHECK_THAT(count_primes(65536, 131072), equals(5709));
+    CHECK_THAT(count_primes(0u, 1000u), equals(168));
+    CHECK_THAT(count_primes(0u, 10000u), equals(1229));
+    CHECK_THAT(count_primes(0u, 65536u), equals(6542));
+    CHECK_THAT(count_primes(65536u, 131072u), equals(5709));
 }
 
 
 TEST_CASE("Sieve of Erathostenes - larger primes 2") {
-    CHECK_THAT(count_primes(131070, 141709), equals(909));
-    CHECK_THAT(count_primes(312307, 313409), equals(91));
-    CHECK_THAT(count_primes(524287, 524287), equals(0));
-    CHECK_THAT(count_primes(524287, 524288), equals(1));
+    CHECK_THAT(count_primes(131070u, 141709u), equals(909));
+    CHECK_THAT(count_primes(312307u, 313409u), equals(91));
+    CHECK_THAT(count_primes(524287u, 524287u), equals(0));
+    CHECK_THAT(count_primes(524287u, 524288u), equals(1));
 }
 
 
 TEST_CASE("Sieve of Erathostenes - even larger primes 1") {
-    CHECK_THAT(count_primes(3141592, 3142001), equals(22));
-    CHECK_THAT(count_primes(8388608, 8389009), equals(25));
-    CHECK_THAT(count_primes(4458763, 4459763), equals(70));
-    CHECK_THAT(count_primes(24033746, 24043746), equals(620));
+    CHECK_THAT(count_primes(3141592u, 3142001u), equals(22));
+    CHECK_THAT(count_primes(8388608u, 8389009u), equals(25));
+    CHECK_THAT(count_primes(4458763u, 4459763u), equals(70));
+    CHECK_THAT(count_primes(24033746u, 24043746u), equals(620));
 }
 
 
 TEST_CASE("Sieve of Erathostenes - even larger primes 2") {
-    CHECK_THAT(count_primes(17310383, 52187113), equals(2014451));
-    CHECK_THAT(count_primes(57931727, 83251653), equals(1401439));
-    CHECK_THAT(count_primes(100'000'000, 101'000'000), equals(54208));
-    CHECK_THAT(count_primes(500'000'000, 501'000'000), equals(49918));
+    CHECK_THAT(count_primes(17310383u, 52187113u), equals(2014451));
+    CHECK_THAT(count_primes(57931727u, 83251653u), equals(1401439));
+    CHECK_THAT(count_primes(100'000'000u, 101'000'000u), equals(54208));
+    CHECK_THAT(count_primes(500'000'000u, 501'000'000u), equals(49918));
 }
 
 
 TEST_CASE("Sieve of Erathostenes - even larger primes 3") {
-    CHECK_THAT(count_primes(2039522013, 2039622967), equals(4656));
-    CHECK_THAT(count_primes(3550634754, 3561957981), equals(514735));
-    CHECK_THAT(count_primes(3343233271, 3394567417), equals(2339267));
-    CHECK_THAT(count_primes(4132050211, 4208912531), equals(3469201));
+    CHECK_THAT(count_primes(2039522013u, 2039622967u), equals(4656));
+    CHECK_THAT(count_primes(3550634754u, 3561957981u), equals(514735));
+    CHECK_THAT(count_primes(3343233271u, 3394567417u), equals(2339267));
+    CHECK_THAT(count_primes(4132050211u, 4208912531u), equals(3469201));
 }
 
 
 TEST_CASE("Sieve of Erathostenes - limits") {
-    CHECK_THAT(count_primes(4294967200, 4294967295), equals(3));
+    CHECK_THAT(count_primes(4294967200u, 4294967295u), equals(3));
 }
 
 
@@ -178,20 +178,20 @@ TEST_CASE("Sieve of Erathostenes - primes iterator") {
 }
 
 TEST_CASE("Sieve of Ertathostenes - above 2^32 - 1") {
-    CHECK_THAT(lfp::sieve_to_vector<int64_t>(300ull, 400ull), Equals(primes_by_division<int64_t>(300ull, 400ull)));
-    CHECK_THAT(lfp::sieve_to_vector<int64_t>(1ull << 37, (1ull << 37) + 100),
+    CHECK_THAT(lfp::sieve_to_vector<int64_t>(uint64_t(300), uint64_t(400)), Equals(primes_by_division<int64_t>(uint64_t(300), uint64_t(400))));
+    CHECK_THAT(lfp::sieve_to_vector<int64_t>(uint64_t(1) << 37, (uint64_t(1) << 37) + 100),
 		Equals(std::vector<int64_t>{137438953481, 137438953501, 137438953513, 137438953541, 137438953567}));
-    CHECK_THAT(lfp::sieve_to_vector<int64_t>(1ull << 43, (1ull << 43) + 200),
-		Equals(primes_by_division<int64_t>(1ull << 43, (1ull << 43) + 200)));
-    CHECK_THAT(lfp::sieve_to_vector<int64_t>(1ull << 44, (1ull << 44) + 400),
+    CHECK_THAT(lfp::sieve_to_vector<int64_t>(uint64_t(1) << 43, (uint64_t(1) << 43) + 200),
+		Equals(primes_by_division<int64_t>(uint64_t(1) << 43, (uint64_t(1) << 43) + 200)));
+    CHECK_THAT(lfp::sieve_to_vector<int64_t>(uint64_t(1) << 44, (uint64_t(1) << 44) + 400),
 	    Equals(std::vector<int64_t>{17592186044423, 17592186044437, 17592186044443, 17592186044471, 17592186044591,
 		    17592186044611, 17592186044651, 17592186044659, 17592186044747, 17592186044767, 17592186044813}));
-    CHECK_THAT(lfp::sieve_to_vector<int64_t>(1ull << 50, (1ull << 50) + 1000),
-		    Equals(primes_by_division<int64_t>(1ull << 50, (1ull << 50) + 1000)));
+    CHECK_THAT(lfp::sieve_to_vector<int64_t>(uint64_t(1) << 50, (uint64_t(1) << 50) + 1000),
+		    Equals(primes_by_division<int64_t>(uint64_t(1) << 50, (uint64_t(1) << 50) + 1000)));
 }
 
 TEST_CASE("Sieve of Ertathostenes - above 2^32 - 2") {
-    CHECK_THAT(lfp::sieve<int64_t>((1ull << 33) - (1ull << 30), 1ull << 33).count(), equals(47076888));
+    CHECK_THAT(lfp::sieve<int64_t>((uint64_t(1) << 33) - (uint64_t(1) << 30), uint64_t(1) << 33).count(), equals(47076888));
 }
 
 

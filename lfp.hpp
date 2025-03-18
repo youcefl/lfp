@@ -31,7 +31,7 @@ template <typename T> class PrimesIterator;
 class Bitmap
 {
 public:
-    constexpr Bitmap() = default;
+    constexpr Bitmap();
     explicit constexpr Bitmap(uint64_t n0, std::size_t size);
     constexpr void assign(uint64_t n0, std::size_t size);
     constexpr std::size_t size() const;
@@ -56,6 +56,12 @@ private:
 
     template <typename T> friend class PrimesIterator;
 };
+
+constexpr
+Bitmap::Bitmap()
+  : size_(0)
+  , n0_(0)
+{}
 
 constexpr
 Bitmap::Bitmap(uint64_t n0, std::size_t size)
@@ -400,7 +406,9 @@ PrimesIterator<T>::PrimesIterator(details::Bitmap * bmp, bool isEnd)
     , is_first_(true)
 {
     if(!isEnd) {
-        next();
+	if(bmp_->size()) {
+            next();
+	}
     } else {
 	index_ = bmp_->size();
     }
@@ -646,32 +654,47 @@ sieve32(uint32_t n0, uint32_t n1)
 		    details::collectSieveResults<T>, bmp);
 }
 
-namespace impl {
+namespace details {
 
-template <typename T, typename Fct>
+template <typename T, typename... Rest>
+inline constexpr bool is_one_of_v = (std::is_same_v<T, Rest> || ...);
+
+template <typename T, typename U, typename Fct>
 constexpr auto
-sieve(uint64_t n0, uint64_t n1, Fct ff)
+sieve(U n0, U n1, Fct ff)
 {
+    static_assert(is_one_of_v<U, uint8_t, uint16_t, uint32_t, uint64_t>);
     std::vector<details::Bitmap> bitmaps;
     std::vector<T> prefix;
-    constexpr uint32_t rangeSize = 24*1024*1024;
-    constexpr auto maxUint32 = std::numeric_limits<uint32_t>::max(); 
-    for(uint32_t m0 = 0, m1 = rangeSize;
-        uint64_t{m0} * m0 <= n1;
+    constexpr U rangeSize = [](){
+	    if constexpr (is_one_of_v<U, uint8_t, uint16_t, uint32_t>) {
+	        return (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
+	    } else {
+		return 24*1024*1024;
+	    } }();
+    constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
+    for(U m0 = 0, m1 = rangeSize;
+        (m0 < (U{1} << (std::numeric_limits<U>::digits / 2)) - 1) &&  (m0 * m0 <= n1);
 	m0 = m1, 
-	   m1 = (maxUint32 - m1 >= rangeSize) ? m1 + rangeSize : maxUint32) {
+	   m1 = (maxm - m1 >= rangeSize) ? m1 + rangeSize : maxm) {
 	details::Bitmap primesBmp;
-	details::inner_sieve<uint32_t>(details::u16primes, m0, m1,
+	constexpr auto basePrimes = []() {
+		   if constexpr (std::is_same_v<U, uint8_t>
+				   || std::is_same_v<U, uint16_t>) return u8primes<U>();
+		   else return u16primes;
+		}();
+	details::inner_sieve<U>(basePrimes, m0, m1,
 	  [](auto, auto, details::Bitmap const * zbmp){
 	  }, primesBmp);
 	details::PrimesIterator<uint32_t> itP{&primesBmp}, itPe{&primesBmp, true};
 	auto basePrimesRange = std::ranges::subrange(itP, itPe);
-	constexpr auto maxn = std::numeric_limits<uint64_t>::max();
+	constexpr auto maxn = std::numeric_limits<U>::max();
+	constexpr auto innerRangeSize = 24*1024*1024;
 	int k = 0;
-        for(auto a0 = n0, a1 = std::min(n1, (maxn - rangeSize < n0) ? maxn : n0 + rangeSize);
+        for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : n0 + innerRangeSize);
 	    a0 < n1;
-            a0 = (maxn - rangeSize < a0) ? maxn : a0 + rangeSize, 
-	      a1 = std::min(n1, maxn - rangeSize < a0 ? maxn : a0 + rangeSize),
+            a0 = (maxn - innerRangeSize < a0) ? maxn : a0 + innerRangeSize,
+	      a1 = std::min(n1, maxn - innerRangeSize < a0 ? maxn : a0 + innerRangeSize),
 	      ++k) {
             bool initBmp = false;
 	    if(bitmaps.size() == k) {
@@ -691,48 +714,44 @@ sieve(uint64_t n0, uint64_t n1, Fct ff)
     return ff(prefix, bitmaps);
 }
 
-} // namespace impl
+} // namespace details
 
-template <typename T>
+template <typename T, typename U>
 constexpr SieveResults<T>
-sieve(uint64_t n0, uint64_t n1)
+sieve(U n0, U n1)
 {
-    return impl::sieve<T>(n0, n1,
+    return details::sieve<T>(n0, n1,
 	       [](auto & prefix, std::vector<details::Bitmap> & bitmaps) {
                    return SieveResults<T>{std::move(prefix), std::move(bitmaps)};
                });
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr std::vector<T>
-sieve_to_vector(uint64_t n0, uint64_t n1)
+sieve_to_vector(U n0, U n1)
 {
    auto res = sieve<T>(n0, n1);
    auto rng = res.range();
    return std::vector<T>(rng.begin(), rng.end());
 }
 
-
-int32_t count_primes(uint32_t n0, uint32_t n1)
+template <typename U>
+std::size_t count_primes(U n0, U n1)
 {
-    details::Bitmap bmp;
-    int32_t count = 0;
+    std::size_t count = 0;
     constexpr auto rangeSize = 24*1024*1024;
-    constexpr auto maxn = std::numeric_limits<uint32_t>::max();
+    constexpr auto maxn = std::numeric_limits<U>::max();
     for(auto a0 = n0, a1 = std::min(n1, (maxn - rangeSize < n0) ? maxn : n0 + rangeSize);
 	a0 < n1;
         a0 = (maxn - rangeSize < a0) ? maxn : a0 + rangeSize, 
 	  a1 = std::min(n1, maxn - rangeSize < a0 ? maxn : a0 + rangeSize)) {
-        count += details::inner_sieve<int32_t>(details::u16primes, a0, a1,
-	[](auto it0, auto it1, details::Bitmap const * zbmp) {
-	    return int32_t(std::distance(it0, it1)) + (zbmp ? int32_t(zbmp->popcount()) : 0);
-	    }, bmp);
+	count += sieve<U>(a0, a1).count(); 
     }
     return count; 
 }
 
-
-int32_t threaded_count_primes(int32_t numThreads, uint32_t n0, uint32_t n1)
+template <typename U>
+std::size_t threaded_count_primes(int32_t numThreads, U n0, U n1)
 {
     if(n0 >= n1) {
 	return 0;
@@ -747,14 +766,14 @@ int32_t threaded_count_primes(int32_t numThreads, uint32_t n0, uint32_t n1)
     if(n1 - n0 < numThreads) {
         return count_primes(n0, n1);
     }
-    std::vector<std::future<int32_t>> results;
+    std::vector<std::future<std::size_t>> results;
     for(uint32_t k = n0, dk = (n1 - n0) / numThreads, ek = (n1 - n0) % numThreads; k < n1; ek = ek ? ek - 1 : 0) {
 	auto kmax = k + dk + (ek ? 1 : 0);
-	results.emplace_back(std::async(std::launch::async, count_primes, k, kmax));
+	results.emplace_back(std::async(std::launch::async, count_primes<U>, k, kmax));
 	k = kmax;
     }
     return std::accumulate(std::begin(results), std::end(results),
-		    int32_t{}, [](auto x, auto & y) { return x + y.get(); });
+		    std::size_t{}, [](auto x, auto & y) { return x + y.get(); });
 }
 
 } // namespace lfp
