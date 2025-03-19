@@ -64,6 +64,7 @@ static_assert(sieve_to_vector<uint32_t>(uint32_t(2147483548), uint32_t(214748364
 static_assert(sieve_to_vector<uint32_t>(uint32_t(3221225472), uint32_t(3221225672)) == std::vector<uint32_t>{3221225473, 3221225479,
 	    3221225533, 3221225549, 3221225551, 3221225561, 3221225563, 3221225599, 3221225617, 3221225641,
 	    3221225653, 3221225659, 3221225669});
+static_assert(sieve_to_vector<int64_t>(uint64_t(1000000), uint64_t(1000010)) == std::vector<int64_t>{1000003});
 
 #endif
 

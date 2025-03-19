@@ -188,7 +188,7 @@ uint8_t Bitmap::at(std::size_t index) const
 
 
 
-constexpr int8_t adjt[8][14] = {
+inline constexpr int8_t adjt[8][14] = {
     {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
     {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
     {0, 4, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 2},
@@ -199,7 +199,7 @@ constexpr int8_t adjt[8][14] = {
     {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}
 };
 
-constexpr uint8_t wheel[8][8] = {
+inline constexpr uint8_t wheel[8][8] = {
     {6,4,2,4,2,4,6,2},
     {4,2,4,2,4,6,2,6},
     {2,4,2,4,6,2,6,4},
@@ -210,7 +210,7 @@ constexpr uint8_t wheel[8][8] = {
     {2,6,4,2,4,2,4,6}
 };
 
-constexpr uint8_t whoffs[8][8] = {
+inline constexpr uint8_t whoffs[8][8] = {
     {0, 1, 2, 3, 4, 5, 6, 7},
     {2, 7, 5, 4, 1, 0, 6, 3},
     {0, 2, 6, 4, 7, 5, 1, 3},
@@ -657,15 +657,20 @@ sieve(I k0, I k1, Fct ff)
 	k1 = (std::max)(I{0}, k1);
     }
     using U = std::make_unsigned_t<I>;
-    U n0 = U(k0), n1 = U(k1);
+    const U n0 = U(k0), n1 = U(k1);
 
     std::vector<details::Bitmap> bitmaps;
     std::vector<T> prefix;
-    constexpr U rangeSize = [](){
+    const U rangeSize = [n1](){
 	    if constexpr (is_one_of_v<U, uint8_t, uint16_t, uint32_t>) {
 	        return (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
 	    } else {
-		return 2*1024*1024;
+		// Established through tests
+		if(n1 >= U{55}<<54) {
+		    return U{48*1024*1024};
+		}
+		return (std::min)(U{2*1024*1024},
+		            U{1} << ((std::bit_width(n1) + 1)/2));
 	    } }();
     constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
     for(U m0 = 0, m1 = rangeSize;

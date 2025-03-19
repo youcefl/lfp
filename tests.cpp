@@ -25,13 +25,14 @@ primes_by_division(uint64_t a, uint64_t b)
 	}
 	a = 3;
     }
-    for(auto c = a | 1; c < b; c += 2) {
+    constexpr auto cmax = std::numeric_limits<decltype(b)>::max();
+    for(auto c = a | 1; c < b; c = (c > cmax - 2) ? cmax : c + 2) {
 	if(!(c % 3) && (c != 3)) {
 	    continue;
 	}
 	bool isPrime = true;
 	int w[] = {2,4}, i = 0;
-        for(uint64_t p = 5; p * p <= c; p += w[i], i^=1) {
+        for(uint64_t p = 5; (p * p <= c) && (p <= std::numeric_limits<uint32_t>::max()); p += w[i], i^=1) {
 	    if(!(c % p)) {
                 isPrime = false;
 		break;
@@ -191,6 +192,11 @@ TEST_CASE("Sieve of Ertathostenes - above 2^32 - 1") {
 
 TEST_CASE("Sieve of Ertathostenes - above 2^32 - 2") {
     CHECK_THAT(lfp::sieve<int64_t>((uint64_t(1) << 33) - (uint64_t(1) << 30), uint64_t(1) << 33).count(), equals(47076888));
+    CHECK_THAT(lfp::sieve_to_vector<uint64_t>(uint64_t(10000000000000000000u), uint64_t(10000000000000000100u)),
+		    Equals(std::vector<uint64_t>{uint64_t(10000000000000000051u), uint64_t(10000000000000000087u), uint64_t(10000000000000000091u),
+			    uint64_t(10000000000000000097u), uint64_t(10000000000000000099u)}));
+    CHECK_THAT(lfp::sieve_to_vector<uint64_t>(uint64_t(18446744073709551516u), uint64_t(18446744073709551615u)),
+		    Equals(std::vector<uint64_t>{uint64_t(18446744073709551521u), uint64_t(18446744073709551533u), uint64_t(18446744073709551557u)}));
 }
 
 
