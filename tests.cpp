@@ -10,8 +10,7 @@
 #include "lfp.hpp"
 
 using lfp::count_primes;
-using lfp::sieve16;
-using lfp::sieve32;
+using lfp::sieve_to_vector;
 using Catch::Matchers::Equals;
 
 
@@ -130,33 +129,33 @@ TEST_CASE("Sieve of Erathostenes - limits") {
 
 
 TEST_CASE("Sieve of Erathostenes - list primes - 1") {
-    CHECK_THAT(sieve16<int32_t>(0, 2), Equals(std::vector<int32_t>{}));
-    CHECK_THAT(sieve16<int32_t>(0, 2), Equals(primes_by_division<int32_t>(0, 2)));
-    CHECK_THAT(sieve16<int32_t>(0, 3), Equals(std::vector<int32_t>{{2}}));
-    CHECK_THAT(sieve16<int32_t>(0, 3), Equals(primes_by_division<int32_t>(0, 3)));
-    CHECK_THAT(sieve16<int32_t>(0, 20), Equals(primes_by_division<int32_t>(0, 20)));
-    CHECK_THAT(sieve16<int32_t>(0, 20), Equals(std::vector<int32_t>{{2, 3, 5, 7, 11, 13, 17, 19}}));
+    CHECK_THAT(sieve_to_vector<int32_t>(uint16_t(0), uint16_t(2)), Equals(std::vector<int32_t>{}));
+    CHECK_THAT(sieve_to_vector<int32_t>(uint16_t(0), uint16_t(2)), Equals(primes_by_division<int32_t>(0, 2)));
+    CHECK_THAT(sieve_to_vector<int32_t>(uint16_t(0), uint16_t(3)), Equals(std::vector<int32_t>{{2}}));
+    CHECK_THAT(sieve_to_vector<int32_t>(uint16_t(0), uint16_t(3)), Equals(primes_by_division<int32_t>(0, 3)));
+    CHECK_THAT(sieve_to_vector<int32_t>(uint16_t(0), uint16_t(20)), Equals(primes_by_division<int32_t>(0, 20)));
+    CHECK_THAT(sieve_to_vector<int32_t>(uint16_t(0), uint16_t(20)), Equals(std::vector<int32_t>{{2, 3, 5, 7, 11, 13, 17, 19}}));
 }
 
 
 TEST_CASE("Sieve of Erathostenes - list primes - 2") {
-    CHECK_THAT(sieve16<int32_t>(0, 100), Equals(primes_by_division<int32_t>(0, 100)));
-    CHECK_THAT(sieve16<int32_t>(1, 101), Equals(primes_by_division<int32_t>(1, 101)));
-    CHECK_THAT(sieve16<int32_t>(9000, 10000), Equals(primes_by_division<int32_t>(9000, 10000)));
-    CHECK_THAT(sieve16<int32_t>(65500, 65535), Equals(primes_by_division<int32_t>(65500, 65535)));
+    CHECK_THAT(sieve_to_vector<int32_t>(uint16_t(0), uint16_t(100)), Equals(primes_by_division<int32_t>(0, 100)));
+    CHECK_THAT(sieve_to_vector<int32_t>(uint16_t(1), uint16_t(101)), Equals(primes_by_division<int32_t>(1, 101)));
+    CHECK_THAT(sieve_to_vector<int32_t>(uint16_t(9000), uint16_t(10000)), Equals(primes_by_division<int32_t>(9000, 10000)));
+    CHECK_THAT(sieve_to_vector<int32_t>(uint16_t(65500), uint16_t(65535)), Equals(primes_by_division<int32_t>(65500, 65535)));
 }
 
 
 TEST_CASE("Sieve of Erathostenes - list primes - 3") {
-    CHECK_THAT(sieve32<int32_t>(131000, 131500), Equals(primes_by_division<int32_t>(131000, 131500)));
-    CHECK_THAT(sieve32<int32_t>(640191, 703411), Equals(primes_by_division<int32_t>(640191, 703411)));
-    CHECK_THAT(sieve32<int32_t>(1'350'209, 1'358'907), Equals(primes_by_division<int32_t>(1'350'209, 1'358'907)));
-    CHECK_THAT(sieve32<int32_t>(2'147'483'548, 2'147'483'647), Equals(primes_by_division<int32_t>(2'147'483'548, 2'147'483'647)));
+    CHECK_THAT(sieve_to_vector<int32_t>(131000, 131500), Equals(primes_by_division<int32_t>(131000, 131500)));
+    CHECK_THAT(sieve_to_vector<int32_t>(640191, 703411), Equals(primes_by_division<int32_t>(640191, 703411)));
+    CHECK_THAT(sieve_to_vector<int32_t>(1'350'209, 1'358'907), Equals(primes_by_division<int32_t>(1'350'209, 1'358'907)));
+    CHECK_THAT(sieve_to_vector<int32_t>(2'147'483'548, 2'147'483'647), Equals(primes_by_division<int32_t>(2'147'483'548, 2'147'483'647)));
 }
 
 
 TEST_CASE("Sieve of Erathostenes - list primes - 4") {
-    CHECK_THAT(sieve32<uint32_t>(4'294'967'200, 4'294'967'295), Equals(primes_by_division<uint32_t>(4'294'967'200, 4'294'967'295)));
+    CHECK_THAT(sieve_to_vector<uint32_t>(4'294'967'200, 4'294'967'295), Equals(primes_by_division<uint32_t>(4'294'967'200, 4'294'967'295)));
 }
 
 

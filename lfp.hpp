@@ -188,8 +188,6 @@ uint8_t Bitmap::at(std::size_t index) const
 
 
 
-
-
 constexpr int8_t adjt[8][14] = {
     {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
     {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
@@ -627,43 +625,40 @@ constexpr std::size_t SieveResults<T>::count()
     return count_;
 }
 
-template <typename T>
-constexpr std::vector<T>
-sieve16(uint16_t n0, uint16_t n1)
-{
-    constexpr auto smallPrimes = details::u8primes<uint16_t>();
-    details::Bitmap bmp;
-    return details::inner_sieve<T>(smallPrimes, n0, n1,
-		    details::collectSieveResults<T>, bmp);
-}
 
 namespace details {
+
 constexpr auto u16primes = []() {
-    std::array<uint16_t, sieve16<uint16_t>(0,65535).size()> u16primes;
-    std::ranges::copy(sieve16<uint16_t>(0,65535), std::begin(u16primes));
-    return u16primes;
+    auto sv = [] {
+	constexpr auto basePrimes = u8primes<uint16_t>();
+        Bitmap bmp;
+        return inner_sieve<uint16_t>(
+		    u8primes<uint16_t>(), uint16_t(0), uint16_t(65535),
+		    collectSieveResults<uint16_t>,
+		    bmp);
+    };
+    std::array<uint16_t, sv().size()> u16primesArr;
+    std::ranges::copy(sv(), std::begin(u16primesArr));
+    return u16primesArr;
   }();
-}
 
-template <typename T>
-constexpr std::vector<T>
-sieve32(uint32_t n0, uint32_t n1)
-{
-    details::Bitmap bmp;
-    return details::inner_sieve<T>(details::u16primes, n0, n1,
-		    details::collectSieveResults<T>, bmp);
-}
-
-namespace details {
 
 template <typename T, typename... Rest>
 inline constexpr bool is_one_of_v = (std::is_same_v<T, Rest> || ...);
 
-template <typename T, typename U, typename Fct>
+
+template <typename T, typename I, typename Fct>
 constexpr auto
-sieve(U n0, U n1, Fct ff)
+sieve(I k0, I k1, Fct ff)
 {
-    static_assert(is_one_of_v<U, uint8_t, uint16_t, uint32_t, uint64_t>);
+    static_assert(is_one_of_v<I, int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t>);
+    if constexpr(std::numeric_limits<I>::is_signed) {
+	k0 = (std::max)(I{0}, k0);
+	k1 = (std::max)(I{0}, k1);
+    }
+    using U = std::make_unsigned_t<I>;
+    U n0 = U(k0), n1 = U(k1);
+
     std::vector<details::Bitmap> bitmaps;
     std::vector<T> prefix;
     constexpr U rangeSize = [](){
@@ -686,15 +681,20 @@ sieve(U n0, U n1, Fct ff)
 	details::inner_sieve<U>(basePrimes, m0, m1,
 	  [](auto, auto, details::Bitmap const * zbmp){
 	  }, primesBmp);
-	details::PrimesIterator<uint32_t> itP{&primesBmp}, itPe{&primesBmp, true};
+	details::PrimesIterator<U> itP{&primesBmp}, itPe{&primesBmp, true};
 	auto basePrimesRange = std::ranges::subrange(itP, itPe);
-	constexpr auto maxn = std::numeric_limits<U>::max();
-	constexpr auto innerRangeSize = 24*1024*1024;
+	constexpr U maxn = std::numeric_limits<U>::max();
+	constexpr U innerRangeSize = []() {
+		if constexpr (is_one_of_v<U, uint8_t, uint16_t>) {
+		    return maxn;
+		} else { 
+		    return U{24*1024*1024};
+		} }();
 	int k = 0;
-        for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : n0 + innerRangeSize);
+        for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : U(n0 + innerRangeSize));
 	    a0 < n1;
             a0 = (maxn - innerRangeSize < a0) ? maxn : a0 + innerRangeSize,
-	      a1 = std::min(n1, maxn - innerRangeSize < a0 ? maxn : a0 + innerRangeSize),
+	      a1 = std::min(n1, maxn - innerRangeSize < a0 ? maxn : U(a0 + innerRangeSize)),
 	      ++k) {
             bool initBmp = false;
 	    if(bitmaps.size() == k) {
