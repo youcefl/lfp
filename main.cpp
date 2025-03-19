@@ -29,7 +29,7 @@ int main(int argc, char** argv)
 	n0idx += 2;
 	n1idx += 2;
     }
-    uint32_t n0, n1;
+    uint64_t n0, n1;
     std::istringstream istr0{argv[n0idx]};
     istr0 >> n0;
     std::istringstream istr1{argv[n1idx]};

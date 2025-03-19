@@ -665,7 +665,7 @@ sieve(I k0, I k1, Fct ff)
 	    if constexpr (is_one_of_v<U, uint8_t, uint16_t, uint32_t>) {
 	        return (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
 	    } else {
-		return 24*1024*1024;
+		return 2*1024*1024;
 	    } }();
     constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
     for(U m0 = 0, m1 = rangeSize;
@@ -767,7 +767,7 @@ std::size_t threaded_count_primes(int32_t numThreads, U n0, U n1)
         return count_primes(n0, n1);
     }
     std::vector<std::future<std::size_t>> results;
-    for(uint32_t k = n0, dk = (n1 - n0) / numThreads, ek = (n1 - n0) % numThreads; k < n1; ek = ek ? ek - 1 : 0) {
+    for(auto k = n0, dk = (n1 - n0) / numThreads, ek = (n1 - n0) % numThreads; k < n1; ek = ek ? ek - 1 : 0) {
 	auto kmax = k + dk + (ek ? 1 : 0);
 	results.emplace_back(std::async(std::launch::async, count_primes<U>, k, kmax));
 	k = kmax;
