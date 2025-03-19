@@ -721,6 +721,39 @@ sieve(I k0, I k1, Fct ff)
 
 } // namespace details
 
+
+struct Threads {
+    Threads();
+    Threads(unsigned int);
+    unsigned int count() const;
+private:
+    unsigned int count_;
+    static unsigned int defaultCount();
+};
+
+inline unsigned int
+Threads::defaultCount()
+{
+    static auto v = []() {
+	auto c = std::thread::hardware_concurrency();
+	return c ? c : 1;
+      }();
+    return v;
+}
+
+inline Threads::Threads()
+    : count_(Threads::defaultCount())
+{}
+
+inline Threads::Threads(unsigned int numThreads)
+    : count_(numThreads ? numThreads : 1)
+{}
+
+inline unsigned int Threads::count() const
+{
+    return count_;
+}
+
 template <typename T, typename U>
 constexpr SieveResults<T>
 sieve(U n0, U n1)
@@ -735,10 +768,47 @@ template <typename T, typename U>
 constexpr std::vector<T>
 sieve_to_vector(U n0, U n1)
 {
-   auto res = sieve<T>(n0, n1);
-   auto rng = res.range();
-   return std::vector<T>(rng.begin(), rng.end());
+    auto res = sieve<T>(n0, n1);
+    auto rng = res.range();
+    return std::vector<T>(rng.begin(), rng.end());
 }
+
+
+template <typename T, typename U>
+SieveResults<T>
+sieve(U n0, U n1, Threads const & threads)
+{
+    if(threads.count() == 1 || (n1 <= n0) || (n1 - n0) <= threads.count()) {
+	return sieve<T>(n0, n1);
+    }
+    auto numThreads = threads.count();
+    std::vector<std::future<std::vector<details::Bitmap>>> results;
+    std::vector<T> prefix;
+    for(auto k = n0, dk = (n1 - n0) / numThreads, ek = (n1 - n0) % numThreads; k < n1; ek = ek ? ek - 1 : 0) {
+	auto kmax = k + dk + (ek ? 1 : 0);
+	results.emplace_back(std::async(std::launch::async,
+		[&prefix](U v0, U v1){
+		   return details::sieve<T>(v0, v1,
+			[&prefix](auto & pref, std::vector<details::Bitmap> & bmps) {
+			    if(!pref.empty()) {
+			        prefix = std::move(pref);
+			    }
+			    return std::move(bmps);
+			});
+		}, k, kmax));
+	k = kmax;
+    }
+    std::vector<details::Bitmap> bmps =
+    std::accumulate(std::begin(results), std::end(results), std::vector<details::Bitmap>{},
+        [](auto x, auto & y) {
+	    for(auto & b : y.get()) {
+	        x.emplace_back(std::move(b));
+	    }
+	    return std::move(x);
+	});
+    return SieveResults<T>{std::move(prefix), std::move(bmps)};
+}
+
 
 template <typename U>
 std::size_t count_primes(U n0, U n1)
@@ -756,25 +826,19 @@ std::size_t count_primes(U n0, U n1)
 }
 
 template <typename U>
-std::size_t threaded_count_primes(int32_t numThreads, U n0, U n1)
+std::size_t count_primes(U n0, U n1, Threads const & threads)
 {
     if(n0 >= n1) {
 	return 0;
     }
-    if(numThreads == 0) {
-        numThreads = int32_t(std::thread::hardware_concurrency());
-    }
-    if(!numThreads) {
-        std::cerr << "Could not determine the number of concurrent threads supported, defaulting to 1." << std::endl;
-	numThreads = 1;
-    }
+    auto numThreads = threads.count();
     if(n1 - n0 < numThreads) {
         return count_primes(n0, n1);
     }
     std::vector<std::future<std::size_t>> results;
     for(auto k = n0, dk = (n1 - n0) / numThreads, ek = (n1 - n0) % numThreads; k < n1; ek = ek ? ek - 1 : 0) {
 	auto kmax = k + dk + (ek ? 1 : 0);
-	results.emplace_back(std::async(std::launch::async, count_primes<U>, k, kmax));
+	results.emplace_back(std::async(std::launch::async, static_cast<std::size_t(*)(U,U)>(count_primes<U>), k, kmax));
 	k = kmax;
     }
     return std::accumulate(std::begin(results), std::end(results),

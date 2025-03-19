@@ -199,4 +199,7 @@ TEST_CASE("Sieve of Ertathostenes - above 2^32 - 2") {
 		    Equals(std::vector<uint64_t>{uint64_t(18446744073709551521u), uint64_t(18446744073709551533u), uint64_t(18446744073709551557u)}));
 }
 
+TEST_CASE("Sieve of Erathostenes - multithreaded sieve") {
+    CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1000000), lfp::Threads{2}).count(), equals(78498));
+}
 
