@@ -20,6 +20,7 @@ constexpr auto primesBelow256 = []() {
     std::ranges::copy(vecPrimesBelow256, std::begin(arr));
     return arr;
   }();
+
 // Some checks on the resulting array...
 static_assert(primesBelow256.size() == 54);
 static_assert(primesBelow256[53] == 251);
