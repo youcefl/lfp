@@ -12,12 +12,22 @@ Here are some examples of use:
 ```c++
 #include "lfp.hpp"
 
-// Get a vector containing the prime numbers below 256 as 8 bit signed integers
-constexpr auto primesBelow256 = lfp::sieve_to_vector<int8_t>(0, 256);
+// Construct an array containing the prime numbers below 256 as 8-bit unsigned integers
+constexpr auto primesBelow256 = []() {
+    auto vecPrimesBelow256 = lfp::sieve_to_vector<uint8_t>(0, 256);
+    constexpr auto size = lfp::sieve_to_vector<uint8_t>(0, 256).size();
+    std::array<uint8_t, size> arr;
+    std::ranges::copy(vecPrimesBelow256, std::begin(arr));
+    return arr;
+  }();
+// Some checks on the resulting array...
 static_assert(primesBelow256.size() == 54);
+static_assert(primesBelow256[53] == 251);
+static_assert(primesBelow256[25] == 101);
 
-// Check the number of primes between 10^7 and 10^7+10^6
-static_assert(lfp::count_primes(10'000'000, 11'000'000) == 61938);
+// Check the number of primes between 0 and 10^5
+static_assert(lfp::count_primes(0, 100'000) == 9592);
+
 
 // Sieve range [0, 10^7) using up to 8 concurrent threads and put the resulting primes in a vector
 auto sieveRes = sieve<int32_t>(0, 10000000, lfp::Threads{8});
@@ -26,14 +36,14 @@ primes.reserve(sieveRes.count());
 for(auto p : sieveRes) {
     primes.push_back(p);
 }
+
 // shorter version:
 auto sieveRes = sieve<int32_t>(0, 10000000, lfp::Threads{8});
 auto rng = sieveRes.range();
 std::vector<int32_t> primes{rng.begin(), rng.end()};
 
-// Iterate over the prime numbers between 10^8 and 10^8+10^7
+// Sieve range [10^8 and 10^8+10^7) using the default number of concurrent threads, then iterate over the resulting primes
 for(auto p : sieve<uint32_t>(100000000, 110000000, lfp::Threads{})) {
-    ....
 }
 
 ```
