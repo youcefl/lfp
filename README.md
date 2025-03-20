@@ -2,23 +2,115 @@
 
 # LFP
 
-A constexpr implementation of the sieve of Erathostenes
+## A constexpr implementation of the sieve of Erathostenes
 
-LFP is a constexpr implementation of the sieve of Erathostenes, it consists of a single header file, namely lfp.hpp,
-to be included by the user.
+LFP is a constexpr implementation of the sieve of Erathostenes, it consists of a single header file, namely lfp.hpp.
+Note that you will need a C++20 capable compiler to be able to use LFP. 
 
-Here is an example of use:
+Here are some examples of use:
 
 ```c++
 #include "lfp.hpp"
 
-constexpr auto primesBelow256 = lfp::sieve<int8_t>(0, 256);
+// Get a vector containing the prime numbers below 256 as 8 bit signed integers
+constexpr auto primesBelow256 = lfp::sieve_to_vector<int8_t>(0, 256);
 static_assert(primesBelow256.size() == 54);
 
 // Check the number of primes between 10^7 and 10^7+10^6
 static_assert(lfp::count_primes(10'000'000, 11'000'000) == 61938);
 
+// Sieve range [0, 10^7) using up to 8 concurrent threads and put the resulting primes in a vector
+auto sieveRes = sieve<int32_t>(0, 10000000, lfp::Threads{8});
+std::vector<int32_t> primes;
+primes.reserve(sieveRes.count());
+for(auto p : sieveRes) {
+    primes.push_back(p);
+}
+// shorter version:
+auto sieveRes = sieve<int32_t>(0, 10000000, lfp::Threads{8});
+auto rng = sieveRes.range();
+std::vector<int32_t> primes{rng.begin(), rng.end()};
+
+// Iterate over the prime numbers between 10^8 and 10^8+10^7
+for(auto p : sieve<uint32_t>(100000000, 110000000, lfp::Threads{})) {
+    ....
+}
+
 ```
+
+## Public API
+
+The public API is as follows:
+
+```c++
+
+namespace lfp {
+
+// Forward declarations
+struct Threads;
+template <typename T> class SieveResults;
+
+/// Returns the result of sieving the range [n0, n1).
+/// T is the type of the resuling prime numbers
+template <typename T, typename U>
+constexpr SieveResults<T> sieve(U n0, U n1);
+
+/// Returns the result of sieving the range [n0, n1).
+/// The sieving is performed using at most threads.count() concurrent threads.
+template <typename T, typename U>
+SieveResults<T> sieve(U n0, U n1, Threads const & threads);
+
+/// Returns a vector containing the prime numbers in range [n0, n1)
+template <typename T, typename U>
+constexpr std::vector<T> sieve_to_vector(U n0, U n1);
+
+/// Returns the number of prime numbers in range [n0, n1)
+template <typename U>
+std::size_t count_primes(U n0, U n1);
+
+/// Returns the number of prime numbers in range [n0, n1)
+/// the sieving is performed using at most threads.count() ooncurrent threads.
+template <typename U>
+std::size_t count_primes(U n0, U n1, Threads const & threads);
+
+/// @struct Holding concurrency information
+struct Threads
+{
+    /// Constructs an instance x such that x.count() == std::thread::hardware_concurrency().
+    /// If std::thread::hardware_concurrency() == 0, then x.count() is equal to 1.
+    Threads();
+    /// Constructs an instance x such that x.count() == c
+    explicit Threads(unsigned int c);
+    /// Returns the maximum number of concurrent threads to use during sieving.
+    unsigned int count() const;
+// ...Private part omitted...
+};
+
+/// Class holding sieve results
+template<typename T>
+class SieveResults
+{
+public:
+    using range_type = decltype(vranges_);
+    constexpr SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap>&& bitmaps);
+    /// Returns a range suitable for iterating over the prime numbers resulting from the sieve
+    constexpr auto range();
+    constexpr operator range_type ();
+    /// Returns the number of prime numbers found by the sieve.
+    constexpr std::size_t count();
+
+    friend constexpr auto begin(SieveResults & rng) { return rng.range().begin(); }
+    friend constexpr auto end(SieveResults & rng) { return rng.range().end(); }
+// ... Private part omitted...
+};
+
+} // namespace lfp
+
+```
+
+
+
+## Performances
 
 The sieve is optimized in the following ways:
  - numbers that are not coprime to 30 i.e. divisible by 2, 3 or 5 are not considered, this is a well known way to speed-up a sieve called wheel factorization.
@@ -29,9 +121,9 @@ The following table gives an idea of the performances to expect from the sieve:
 
 | Range        | Threads | Sieve time (in seconds) |
 |--------------|---------|-------------------------|
-| [0, 10^9)    | 1       | 0.59s                   | 
-| [0, 2*10^9)  | 1       | 1.22s                   | 
-| [0, 4*10^9)  | 1       | 2.5s                    |
+| [0, 10^9)    | 1       | 0.6s                    | 
+| [0, 2*10^9)  | 1       | 1.23s                   | 
+| [0, 4*10^9)  | 1       | 2.53s                   |
 | [0, 10^9)    | 4       | 0.16s                   | 
 | [0, 2*10^9)  | 4       | 0.32s                   | 
 | [0, 4*10^9)  | 4       | 0.66s                   |
