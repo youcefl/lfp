@@ -610,12 +610,17 @@ bool IterW<T>::operator!=(IterW<T> const& other) const
 template<typename T>
 class SieveResults
 {
+    std::vector<T> prefix_;
+    std::vector<details::Bitmap> bmps_;
+    std::vector<decltype(std::ranges::subrange(details::IterW<T>{}, details::IterW<T>{}))> ranges_;
+    decltype(ranges_ | std::views::join | std::views::common)  vranges_;
+    bool isRangesInitialized_;
+    std::size_t count_;
+
 public:
-    using range_type = decltype(std::vector<
-		    decltype(std::ranges::subrange(details::IterW<T>{}, details::IterW<T>{}))
-		    >{} | std::views::join | std::views::common);
+    using range_type = decltype(vranges_);
     constexpr SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap>&& bitmaps);
-    // Returns a range suitable for iterating over the prime numbers resulting from the sieve
+    /// Returns a range suitable for iterating over the prime numbers resulting from the sieve
     constexpr auto range();
     constexpr operator range_type ();
     /// Returns the number of prime numbers found by the sieve.
@@ -624,13 +629,7 @@ public:
     friend constexpr auto begin(SieveResults & rng) { return rng.range().begin(); }
     friend constexpr auto end(SieveResults & rng) { return rng.range().end(); }
 
-private:
-    std::vector<T> prefix_;
-    std::vector<details::Bitmap> bmps_;
-    std::vector<decltype(std::ranges::subrange(details::IterW<T>{}, details::IterW<T>{}))> ranges_;
-    decltype(ranges_ | std::views::join | std::views::common) vranges_;
-    bool isRangesInitialized_;
-    std::size_t count_;
+    static_assert(std::is_same_v<range_type, decltype(vranges_)>);
 };
 
 template <typename T>
