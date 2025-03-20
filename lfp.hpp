@@ -24,6 +24,49 @@
 
 
 namespace lfp {
+
+// Forward declarations
+struct Threads;
+template <typename T> class SieveResults;
+
+/// Returns the result of sieving the range [n0, n1).
+/// T is the type of the resuling prime numbers
+template <typename T, typename U>
+constexpr SieveResults<T> sieve(U n0, U n1);
+
+/// Returns the result of sieving the range [n0, n1).
+/// The sieving is performed using at most threads.count() concurrent threads.
+template <typename T, typename U>
+SieveResults<T> sieve(U n0, U n1, Threads const & threads);
+
+/// Returns a vector containing the prime numbers in range [n0, n1)
+template <typename T, typename U>
+constexpr std::vector<T> sieve_to_vector(U n0, U n1);
+
+/// Returns the number of prime numbers in range [n0, n1)
+template <typename U>
+std::size_t count_primes(U n0, U n1);
+
+/// Returns the number of prime numbers in range [n0, n1)
+/// the sieving is performed using at most threads.count() ooncurrent threads.
+template <typename U>
+std::size_t count_primes(U n0, U n1, Threads const & threads);
+
+/// @struct Holding concurrency information
+struct Threads
+{
+    /// Constructs an instance x such that x.count() == std::thread::hardware_concurrency().
+    /// If std::thread::hardware_concurrency() == 0, then x.count() is equal to 1.
+    Threads();
+    /// Constructs an instance x such that x.count() == c 
+    explicit Threads(unsigned int c);
+    /// Returns the maximum number of concurrent threads to use during sieving.
+    unsigned int count() const;
+private:
+    unsigned int count_;
+    static unsigned int defaultCount();
+};
+
 namespace details {
 
 template <typename T> class PrimesIterator;
@@ -568,10 +611,19 @@ template<typename T>
 class SieveResults
 {
 public:
+    using range_type = decltype(std::vector<
+		    decltype(std::ranges::subrange(details::IterW<T>{}, details::IterW<T>{}))
+		    >{} | std::views::join | std::views::common);
     constexpr SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap>&& bitmaps);
     // Returns a range suitable for iterating over the prime numbers resulting from the sieve
     constexpr auto range();
+    constexpr operator range_type ();
+    /// Returns the number of prime numbers found by the sieve.
     constexpr std::size_t count();
+
+    friend constexpr auto begin(SieveResults & rng) { return rng.range().begin(); }
+    friend constexpr auto end(SieveResults & rng) { return rng.range().end(); }
+
 private:
     std::vector<T> prefix_;
     std::vector<details::Bitmap> bmps_;
@@ -609,6 +661,12 @@ constexpr auto SieveResults<T>::range()
     vranges_ = ranges_ | std::views::join | std::views::common;
     isRangesInitialized_ = true;
     return vranges_;
+}
+
+template <typename T>
+constexpr SieveResults<T>::operator SieveResults<T>::range_type ()
+{
+    return range();
 }
 
 template <typename T>
@@ -721,15 +779,6 @@ sieve(I k0, I k1, Fct ff)
 
 } // namespace details
 
-
-struct Threads {
-    Threads();
-    Threads(unsigned int);
-    unsigned int count() const;
-private:
-    unsigned int count_;
-    static unsigned int defaultCount();
-};
 
 inline unsigned int
 Threads::defaultCount()

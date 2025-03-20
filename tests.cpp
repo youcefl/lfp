@@ -160,7 +160,7 @@ TEST_CASE("Sieve of Erathostenes - list primes - 4") {
 }
 
 
-TEST_CASE("Sieve of Erathostenes - primes iterator") {
+TEST_CASE("Sieve of Erathostenes - primes iterator and range") {
     using namespace lfp;
     using namespace lfp::details;
     {
@@ -175,9 +175,26 @@ TEST_CASE("Sieve of Erathostenes - primes iterator") {
         PrimesIterator<int32_t> it{&bmp}, ite{&bmp, true};
         CHECK_THAT(std::vector<int32_t>(it, ite), Equals(primes_by_division<int32_t>(10000, 12000)));
     }
+    {
+	std::vector<int32_t> primes;
+	for(auto p : sieve<int32_t>(uint32_t(100000), uint32_t(101000))) {
+	    primes.push_back(p);
+	}
+	CHECK_THAT(primes, Equals(primes_by_division<int32_t>(100000, 101000)));
+    }
+    {
+	auto n0 = 1234567890, n1 = 1234667890;
+	auto sieveres = sieve<int32_t>(n0, n1);
+	std::vector<int32_t> primes;
+	primes.reserve(sieveres.count());
+	for(auto p : sieveres) {
+	    primes.push_back(p);
+	}
+	CHECK_THAT(primes, Equals(primes_by_division<int32_t>(n0, n1)));
+    }
 }
 
-TEST_CASE("Sieve of Ertathostenes - above 2^32 - 1") {
+TEST_CASE("Sieve of Erathostenes - above 2^32 - 1") {
     CHECK_THAT(lfp::sieve_to_vector<int64_t>(uint64_t(300), uint64_t(400)), Equals(primes_by_division<int64_t>(uint64_t(300), uint64_t(400))));
     CHECK_THAT(lfp::sieve_to_vector<int64_t>(uint64_t(1) << 37, (uint64_t(1) << 37) + 100),
 		Equals(std::vector<int64_t>{137438953481, 137438953501, 137438953513, 137438953541, 137438953567}));
@@ -190,7 +207,7 @@ TEST_CASE("Sieve of Ertathostenes - above 2^32 - 1") {
 		    Equals(primes_by_division<int64_t>(uint64_t(1) << 50, (uint64_t(1) << 50) + 1000)));
 }
 
-TEST_CASE("Sieve of Ertathostenes - above 2^32 - 2") {
+TEST_CASE("Sieve of Erathostenes - above 2^32 - 2") {
     CHECK_THAT(lfp::sieve<int64_t>((uint64_t(1) << 33) - (uint64_t(1) << 30), uint64_t(1) << 33).count(), equals(47076888));
     CHECK_THAT(lfp::sieve_to_vector<uint64_t>(uint64_t(10000000000000000000u), uint64_t(10000000000000000100u)),
 		    Equals(std::vector<uint64_t>{uint64_t(10000000000000000051u), uint64_t(10000000000000000087u), uint64_t(10000000000000000091u),
@@ -201,5 +218,6 @@ TEST_CASE("Sieve of Ertathostenes - above 2^32 - 2") {
 
 TEST_CASE("Sieve of Erathostenes - multithreaded sieve") {
     CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1000000), lfp::Threads{2}).count(), equals(78498));
+    CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1'000'000'000), lfp::Threads{4}).count(), equals(50847534));
 }
 
