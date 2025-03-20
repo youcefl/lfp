@@ -45,7 +45,7 @@ constexpr std::vector<T> sieve_to_vector(U n0, U n1);
 
 /// Returns the number of prime numbers in range [n0, n1)
 template <typename U>
-std::size_t count_primes(U n0, U n1);
+constexpr std::size_t count_primes(U n0, U n1);
 
 /// Returns the number of prime numbers in range [n0, n1)
 /// the sieving is performed using at most threads.count() ooncurrent threads.
@@ -626,8 +626,8 @@ public:
     /// Returns the number of prime numbers found by the sieve.
     constexpr std::size_t count();
 
-    friend constexpr auto begin(SieveResults & rng) { return rng.range().begin(); }
-    friend constexpr auto end(SieveResults & rng) { return rng.range().end(); }
+    friend constexpr auto begin(SieveResults & rng) { rng.range(); return rng.vranges_.begin(); }
+    friend constexpr auto end(SieveResults & rng) { rng.range(); return rng.vranges_.end(); }
 
     static_assert(std::is_same_v<range_type, decltype(vranges_)>);
 };
@@ -859,7 +859,7 @@ sieve(U n0, U n1, Threads const & threads)
 
 
 template <typename U>
-std::size_t count_primes(U n0, U n1)
+constexpr std::size_t count_primes(U n0, U n1)
 {
     std::size_t count = 0;
     constexpr auto rangeSize = 24*1024*1024;
