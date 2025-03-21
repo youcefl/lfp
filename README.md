@@ -130,18 +130,14 @@ The sieve is optimized in the following ways:
 
 The following table gives an idea of the performances to expect from the sieve:
 
-| Range        | Threads | Sieve time (in seconds) |
-|--------------|---------|-------------------------|
-| [0, 10^9)    | 1       | 0.6s                    | 
-| [0, 2*10^9)  | 1       | 1.23s                   | 
-| [0, 4*10^9)  | 1       | 2.53s                   |
-| [0, 10^9)    | 4       | 0.16s                   | 
-| [0, 2*10^9)  | 4       | 0.32s                   | 
-| [0, 4*10^9)  | 4       | 0.66s                   |
-| [0, 10^9)    | 8       | 0.09s                   | 
-| [0, 2*10^9)  | 8       | 0.17s                   | 
-| [0, 4*10^9)  | 8       | 0.34s                   |
+| Range   \ Threads  | 1 | 4 | 8 | 16 | Number of primes |
+|--------------------|---|---|---|----|------------------|
+| [0, 10^9)  | 0.37s | 0.1s | 0.05s | 0.027s | 50847534 |
+| [0, 4*10^9)  | 1.58s | 0.41s | 0.21s | 0.11s | 189961812 |
+| [10^12, 10^12+10^10) | 6.37s | 1.6s | 0.8s | 0.4s |  361840208 |
+| [10^15, 10^15+10^10) | 33.2s | 8.4s | 4.18s | 2.1s | 289531946 | 
+| [10^18, 10^18+10^10)  | 668.5s | 168.5s | 84.7s | 43.2s | 241272176 |
 
-These timings were measured on a Intel(R) Xeon(R) CPU E5-2686 v4 @ 2.30GHz which was otherwise idle.
+These timings were measured on an Intel(R) Xeon(R) Platinum 8488C which was otherwise idle.
 
 
