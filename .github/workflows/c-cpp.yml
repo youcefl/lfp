@@ -32,7 +32,7 @@ jobs:
         run: |
           mkdir -p Catch2-build && cd Catch2-build
           cmake ../Catch2 -DCMAKE_INSTALL_PREFIX=../Catch2-install
-          cmake --build . --target install
+          cmake --build . -j 8 --target install
 
       - name: Build project
         run: make
