@@ -48,7 +48,7 @@ for ((i = 0; i < ${#ranges[@]}; i += 2)); do
   fi
   primes_c=0
   durations=()
-  echo -n "[${n0}, ${n1})"
+  echo -n "| [${n0}, ${n1})"
   for ((t = 0; t < ${#threads_c[@]}; t += 1)); do
     thrd=${threads_c[t]}
     durations=()
