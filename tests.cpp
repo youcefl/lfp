@@ -156,6 +156,7 @@ TEST_CASE("Sieve of Erathostenes - list primes - 3") {
 
 
 TEST_CASE("Sieve of Erathostenes - list primes - 4") {
+    CHECK_THAT(sieve_to_vector<uint32_t>(8093*8093, 8191*8191+1), Equals(primes_by_division<uint32_t>(8093*8093, 8191*8191+1)));
     CHECK_THAT(sieve_to_vector<uint32_t>(4'294'967'200, 4'294'967'295), Equals(primes_by_division<uint32_t>(4'294'967'200, 4'294'967'295)));
 }
 
@@ -219,5 +220,6 @@ TEST_CASE("Sieve of Erathostenes - above 2^32 - 2") {
 TEST_CASE("Sieve of Erathostenes - multithreaded sieve") {
     CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1000000), lfp::Threads{2}).count(), equals(78498));
     CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1'000'000'000), lfp::Threads{4}).count(), equals(50847534));
+    CHECK_THAT(lfp::sieve<int64_t>(641*641, 8191*8191+1, lfp::Threads{4}).count(), equals(3922190));
 }
 

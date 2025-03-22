@@ -612,22 +612,31 @@ class SieveResults
 {
     std::vector<T> prefix_;
     std::vector<details::Bitmap> bmps_;
+    // For the fields below we use lazy initialization
     std::vector<decltype(std::ranges::subrange(details::IterW<T>{}, details::IterW<T>{}))> ranges_;
     decltype(ranges_ | std::views::join | std::views::common)  vranges_;
     bool isRangesInitialized_;
     std::size_t count_;
+    constexpr void initRange();
 
 public:
     using range_type = decltype(vranges_);
     constexpr SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap>&& bitmaps);
     /// Returns a range suitable for iterating over the prime numbers resulting from the sieve
     constexpr auto range();
+    /// Implicit cast to a range
     constexpr operator range_type ();
     /// Returns the number of prime numbers found by the sieve.
     constexpr std::size_t count();
 
-    friend constexpr auto begin(SieveResults & rng) { rng.range(); return rng.vranges_.begin(); }
-    friend constexpr auto end(SieveResults & rng) { rng.range(); return rng.vranges_.end(); }
+    friend constexpr auto begin(SieveResults & rng) {
+	rng.initRange();
+	return rng.vranges_.begin();
+    }
+    friend constexpr auto end(SieveResults & rng) {
+	rng.initRange();
+	return rng.vranges_.end();
+    }
 
     static_assert(std::is_same_v<range_type, decltype(vranges_)>);
 };
@@ -643,10 +652,10 @@ constexpr SieveResults<T>::SieveResults(std::vector<T>&& prefix, std::vector<det
 {}
 
 template <typename T>
-constexpr auto SieveResults<T>::range()
+constexpr void SieveResults<T>::initRange()
 {
     if(isRangesInitialized_) {
-	return vranges_;
+	return;
     }
     ranges_.reserve(bmps_.size() + prefix_.empty() ? 0 : 1);
     if(!prefix_.empty()) {
@@ -659,11 +668,17 @@ constexpr auto SieveResults<T>::range()
       });
     vranges_ = ranges_ | std::views::join | std::views::common;
     isRangesInitialized_ = true;
+}
+
+template <typename T>
+constexpr auto SieveResults<T>::range()
+{
+    initRange();
     return vranges_;
 }
 
 template <typename T>
-constexpr SieveResults<T>::operator SieveResults<T>::range_type ()
+constexpr SieveResults<T>::operator SieveResults<T>::range_type()
 {
     return range();
 }
