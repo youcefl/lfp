@@ -102,7 +102,7 @@ template<typename T>
 class SieveResults
 {
 public:
-    using range_type = decltype(vranges_);
+    using range_type = ....;
     constexpr SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap>&& bitmaps);
     /// Returns a range suitable for iterating over the prime numbers resulting from the sieve
     constexpr auto range();
@@ -110,8 +110,8 @@ public:
     /// Returns the number of prime numbers found by the sieve.
     constexpr std::size_t count();
 
-    friend constexpr auto begin(SieveResults & rng) { return rng.range().begin(); }
-    friend constexpr auto end(SieveResults & rng) { return rng.range().end(); }
+    friend constexpr auto begin(SieveResults & rng);
+    friend constexpr auto end(SieveResults & rng);
 // ... Private part omitted...
 };
 
@@ -128,16 +128,18 @@ The sieve is optimized in the following ways:
  - the sieve is segmented i.e. if the size of the range R to sieve exceeds a certain threshold S, R is split into segments of size at most S.
  - the sieve is multithreaded, we allocate N threads and each thread deals with part of the range to sieve.
 
-The following table gives an idea of the performances to expect from the sieve:
+The following table gives an idea of the performances to expect from the sieve (all durations are in seconds):
 
-| Range   \ Threads  | 1 | 4 | 8 | 16 | Number of primes |
-|--------------------|---|---|---|----|------------------|
-| [0, 10^9)  | 0.37s | 0.1s | 0.05s | 0.027s | 50847534 |
-| [0, 4*10^9)  | 1.58s | 0.41s | 0.21s | 0.11s | 189961812 |
-| [10^12, 10^12+10^10) | 6.37s | 1.6s | 0.8s | 0.4s |  361840208 |
-| [10^15, 10^15+10^10) | 33.2s | 8.4s | 4.18s | 2.1s | 289531946 | 
-| [10^18, 10^18+10^10)  | 668.5s | 168.5s | 84.7s | 43.2s | 241272176 |
+| Range \ Threads | 1 | 4 | 8 | 16 | 32 | 48 | Number of primes |
+|-----------------|---|---|---|----|----|----|------------------|
+| [0, $10^{9}$) | 0.425 | 0.111 | 0.057 | 0.032 | 0.022 | 0.019 | 50847534 |
+| [0, $2^{32}-1$) | 1.946 | 0.506 | 0.255 | 0.130 | 0.071 | 0.057 | 203280221 |
+| [$10^{12}$, $10^{12}+10^{10}$) | 7.028 | 1.769 | 0.884 | 0.446 | 0.231 | 0.169 | 361840208 |
+| [$10^{15}$, $10^{15}+10^{10}$) | 32.152 | 8.051 | 4.042 | 2.023 | 1.045 | .732 | 289531946 |
+| [$10^{18}$, $10^{18}+10^{10}$) | 618.284 | 155.368 | 77.875 | 38.833 | 20.292 | 14.416 | 241272176 |
+| [$2^{64}-10^{10}$, $2^{64}-1$) | 2455.077 | 644.443 | 323.463 | 161.795 | 84.311 | 63.347 | 225402976 |
 
-These timings were measured on an Intel(R) Xeon(R) Platinum 8488C which was otherwise idle.
+
+These timings were measured on an AMD EPYC 9R14 which was otherwise idle.
 
 
