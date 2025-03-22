@@ -29,14 +29,14 @@ int main(int argc, char** argv)
 	n0idx += 2;
 	n1idx += 2;
     }
-    uint32_t n0, n1;
+    uint64_t n0, n1;
     std::istringstream istr0{argv[n0idx]};
     istr0 >> n0;
     std::istringstream istr1{argv[n1idx]};
     istr1 >> n1;
 
     auto const startt = std::chrono::steady_clock::now();
-    auto numPrimes = lfp::threaded_count_primes(numThreads, n0, n1);
+    auto numPrimes = lfp::count_primes(n0, n1, lfp::Threads{numThreads < 0 ? 1u : (unsigned int)numThreads});
     auto const endt = std::chrono::steady_clock::now();
 
     std::cout << "The number of prime numbers in range [" << n0 << ", " << n1 << "[ is "
