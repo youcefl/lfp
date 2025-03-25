@@ -723,7 +723,8 @@ template <typename T, typename I, typename Fct>
 constexpr auto
 sieve(I k0, I k1, Fct ff)
 {
-    static_assert(is_one_of_v<I, int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t>);
+    static_assert(is_one_of_v<I, int8_t, uint8_t, int16_t, uint16_t,
+		    int32_t, uint32_t, int64_t, uint64_t>);
     if constexpr(std::numeric_limits<I>::is_signed) {
 	k0 = (std::max)(I{0}, k0);
 	k1 = (std::max)(I{0}, k1);
@@ -731,6 +732,66 @@ sieve(I k0, I k1, Fct ff)
     using U = std::make_unsigned_t<I>;
     const U n0 = U(k0), n1 = U(k1);
 
+    constexpr U maxn = std::numeric_limits<U>::max();
+    constexpr U innerRangeSize = []() {
+		if constexpr (is_one_of_v<U, uint8_t, uint16_t>) {
+		    return maxn;
+		} else { 
+		    return U{48*1024*1024};
+		} }();
+    std::vector<details::Bitmap> bitmaps;
+    bitmaps.reserve((n1 - n0)/innerRangeSize + 1);
+    std::vector<T> prefix;
+    prefix.reserve(3);
+ 
+
+    for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : U(n0 + innerRangeSize));
+        a0 < n1;
+        a0 = (maxn - innerRangeSize < a0) ? maxn : a0 + innerRangeSize,
+	a1 = std::min(n1, maxn - innerRangeSize < a0 ? maxn : U(a0 + innerRangeSize))) {
+
+        const U rangeSize = [n1](){
+	    if constexpr (is_one_of_v<U, uint8_t, uint16_t, uint32_t>) {
+	        return (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
+	    } else {
+		// Established through tests
+		if(n1 >= U{55}<<54) {
+		    return U{16*1024*1024};
+		}
+		return (std::min)(U{2*1024*1024},
+		            U{1} << ((std::bit_width(n1) + 1)/2));
+	    } }();
+         constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
+	 bitmaps.emplace_back(details::Bitmap{});
+	 auto & currSegBmp = bitmaps.back();
+
+         for(U m0 = 0, m1 = rangeSize;
+             (m0 < (U{1} << (std::numeric_limits<U>::digits / 2)) - 1) &&  (m0 * m0 <= n1);
+	     m0 = m1, 
+	       m1 = (maxm - m1 >= rangeSize) ? m1 + rangeSize : maxm) {
+	     details::Bitmap primesBmp;
+	     constexpr auto basePrimes = []() {
+		   if constexpr (std::is_same_v<U, uint8_t>
+				   || std::is_same_v<U, uint16_t>) return u8primes<U>();
+		   else return u16primes;
+		}();
+	     details::inner_sieve<U>(basePrimes, m0, m1,
+	        [](auto, auto, details::Bitmap const *){ }, primesBmp);
+	     details::PrimesIterator<U> itP{&primesBmp}, itPe{&primesBmp, true};
+	     auto basePrimesRange = std::ranges::subrange(itP, itPe);
+	     details::inner_sieve<T>(basePrimesRange, a0, a1,
+	             [&](auto it, auto ite, details::Bitmap const*){
+		         if(it != ite) {
+			     prefix = std::vector<T>{it, ite};
+			 }
+		         return 0;
+		     },  currSegBmp, m0 == 0);
+        }
+    }
+    return ff(prefix, bitmaps);
+}
+// $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+#if 0
     std::vector<details::Bitmap> bitmaps;
     std::vector<T> prefix;
     const U rangeSize = [n1](){
@@ -739,12 +800,13 @@ sieve(I k0, I k1, Fct ff)
 	    } else {
 		// Established through tests
 		if(n1 >= U{55}<<54) {
-		    return U{48*1024*1024};
+		    return U{16*1024*1024};
 		}
 		return (std::min)(U{2*1024*1024},
 		            U{1} << ((std::bit_width(n1) + 1)/2));
 	    } }();
     constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
+
     for(U m0 = 0, m1 = rangeSize;
         (m0 < (U{1} << (std::numeric_limits<U>::digits / 2)) - 1) &&  (m0 * m0 <= n1);
 	m0 = m1, 
@@ -765,7 +827,7 @@ sieve(I k0, I k1, Fct ff)
 		if constexpr (is_one_of_v<U, uint8_t, uint16_t>) {
 		    return maxn;
 		} else { 
-		    return U{24*1024*1024};
+		    return U{12*1024*1024};
 		} }();
 	int k = 0;
         for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : U(n0 + innerRangeSize));
@@ -790,6 +852,7 @@ sieve(I k0, I k1, Fct ff)
     }
     return ff(prefix, bitmaps);
 }
+#endif
 
 } // namespace details
 
