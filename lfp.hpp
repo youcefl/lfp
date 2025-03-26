@@ -331,7 +331,7 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
         bmp.assign(n0, (ne - n0)/30 * 8 + ((ne % 30) >= (n0 % 30) ? (ne%30)*4/15 - (n0%30)*4/15 : 8 - (n0%30)*4/15 + (ne%30)*4/15) + 1);
     }
 
-    for(auto p : smallPrimes | std::views::drop_while([](auto p) { return (p==2)||(p==3)||(p==5); })) {
+    for(auto p : smallPrimes | std::views::drop_while([](auto p) { return (p == 2) || (p == 3) || (p == 5); })) {
 	auto p2 = U{p} * p;
 	if(p2 > ne) {
 	    break;
@@ -392,12 +392,12 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
 	        bmp.reset(i + offsets[6]);
 	    }
 	}
-	bmp.reset(i);
-	for(auto j = 0; (j < offsets.size()) && offsets[j]; ++j) {
-	    if(i + offsets[j] >= bmp.size()) {
+	const auto i0 = i;
+	for(auto j = 0; i < bmp.size(); i = i0 + offsets[j], ++j) {
+	    bmp.reset(i);
+            if((j == offsets.size()) || !offsets[j]) {
 		break;
 	    }
-	    bmp.reset(i + offsets[j]);
 	}
     }
     return ff(it0, std::end(tinyPrimes), &bmp);
