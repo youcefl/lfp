@@ -807,69 +807,6 @@ sieve(I k0, I k1, Fct ff)
     }
     return ff(prefix, bitmaps);
 }
-// $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-#if 0
-    std::vector<details::Bitmap> bitmaps;
-    std::vector<T> prefix;
-    const U rangeSize = [n1](){
-	    if constexpr (is_one_of_v<U, uint8_t, uint16_t, uint32_t>) {
-	        return (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
-	    } else {
-		// Established through tests
-		if(n1 >= U{55}<<54) {
-		    return U{16*1024*1024};
-		}
-		return (std::min)(U{2*1024*1024},
-		            U{1} << ((std::bit_width(n1) + 1)/2));
-	    } }();
-    constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
-
-    for(U m0 = 0, m1 = rangeSize;
-        (m0 < (U{1} << (std::numeric_limits<U>::digits / 2)) - 1) &&  (m0 * m0 <= n1);
-	m0 = m1, 
-	   m1 = (maxm - m1 >= rangeSize) ? m1 + rangeSize : maxm) {
-	details::Bitmap primesBmp;
-	constexpr auto basePrimes = []() {
-		   if constexpr (std::is_same_v<U, uint8_t>
-				   || std::is_same_v<U, uint16_t>) return u8primes<U>();
-		   else return u16primes;
-		}();
-	details::inner_sieve<U>(basePrimes, m0, m1,
-	  [](auto, auto, details::Bitmap const * zbmp){
-	  }, primesBmp);
-	details::PrimesIterator<U> itP{&primesBmp}, itPe{&primesBmp, true};
-	auto basePrimesRange = std::ranges::subrange(itP, itPe);
-	constexpr U maxn = std::numeric_limits<U>::max();
-	constexpr U innerRangeSize = []() {
-		if constexpr (is_one_of_v<U, uint8_t, uint16_t>) {
-		    return maxn;
-		} else { 
-		    return U{12*1024*1024};
-		} }();
-	int k = 0;
-        for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : U(n0 + innerRangeSize));
-	    a0 < n1;
-            a0 = (maxn - innerRangeSize < a0) ? maxn : a0 + innerRangeSize,
-	      a1 = std::min(n1, maxn - innerRangeSize < a0 ? maxn : U(a0 + innerRangeSize)),
-	      ++k) {
-            bool initBmp = false;
-	    if(bitmaps.size() == k) {
-                bitmaps.push_back(details::Bitmap{});
-		initBmp = true;
-	    }
-	    auto & currBmp = bitmaps[k];
-	    details::inner_sieve<T>(basePrimesRange, a0, a1,
-	             [&](auto it, auto ite, details::Bitmap const*){
-		         if(it != ite) {
-			     prefix = std::vector<T>{it, ite};
-			 }
-		         return 0;
-		     },  currBmp, initBmp);
-	}
-    }
-    return ff(prefix, bitmaps);
-}
-#endif
 
 } // namespace details
 
