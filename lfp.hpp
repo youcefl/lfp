@@ -331,7 +331,7 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
         bmp.assign(n0, (ne - n0)/30 * 8 + ((ne % 30) >= (n0 % 30) ? (ne%30)*4/15 - (n0%30)*4/15 : 8 - (n0%30)*4/15 + (ne%30)*4/15) + 1);
     }
 
-    for(auto p : smallPrimes | std::views::drop_while([](auto p) { return (p==2)||(p==3)||(p==5); })) {
+    for(auto p : smallPrimes | std::views::drop_while([](auto p) { return (p == 2) || (p == 3) || (p == 5); })) {
 	auto p2 = U{p} * p;
 	if(p2 > ne) {
 	    break;
@@ -356,32 +356,47 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
 	    continue;
 	}
 
-	auto prevIdx = 0;
 	auto count = 0;
 	int32_t firstIndex = -1;
-	std::array<int,8> deltas{};
+	std::array<int,7> offsets{};
+        auto offsIdx = 0;
+	auto prevDelta = 0;
 	for(auto j = whoffs[(p%30)*4/15][cmod30*4/15]; c <= ne;
 	    c = ((c_max - c < wheel[(p%30)*4/15][j]*p) ? ne + 1 : c + wheel[(p%30)*4/15][j]*p), j = (j+1)%8) {
 	    auto currIdx = bmp.indexOf(c);
-	    if(!count) {
+	    if(offsIdx == 0) {
 		firstIndex = currIdx;
 	    }
 
-	    if(count > 0 && count < 9) {
-		    deltas[count - 1] = currIdx - prevIdx;
+	    if(offsIdx > 0 && offsIdx <= offsets.size()) {
+		offsets[offsIdx - 1] = currIdx - firstIndex;
 	    }
-
-	    if(count == 8) {
+            ++offsIdx;
+	    if(offsIdx > offsets.size()) {
 		break;
 	    }
-	    ++count;
-	    prevIdx = currIdx;
 	}
-
-	for(std::size_t i = ((firstIndex >= 0) ? firstIndex : bmp.size()), j = 0; i < bmp.size(); i += deltas[j], j = (j + 1) % 8) {
+	if((firstIndex < 0) || (firstIndex >= bmp.size())) {
+	    continue;
+	}
+	std::size_t i = firstIndex;
+	if(offsets[6]) {
+	    for(; i + 8 * p < bmp.size(); i += 8 * p) {
+		bmp.reset(i);
+	        bmp.reset(i + offsets[0]);
+	        bmp.reset(i + offsets[1]);
+                bmp.reset(i + offsets[2]);
+	        bmp.reset(i + offsets[3]);
+	        bmp.reset(i + offsets[4]);
+	        bmp.reset(i + offsets[5]);
+	        bmp.reset(i + offsets[6]);
+	    }
+	}
+	const auto i0 = i;
+	for(auto j = 0; i < bmp.size(); i = i0 + offsets[j], ++j) {
 	    bmp.reset(i);
-	    if(!deltas[j]) {
-		    break;
+            if((j == offsets.size()) || !offsets[j]) {
+		break;
 	    }
 	}
     }
@@ -723,7 +738,8 @@ template <typename T, typename I, typename Fct>
 constexpr auto
 sieve(I k0, I k1, Fct ff)
 {
-    static_assert(is_one_of_v<I, int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t>);
+    static_assert(is_one_of_v<I, int8_t, uint8_t, int16_t, uint16_t,
+		    int32_t, uint32_t, int64_t, uint64_t>);
     if constexpr(std::numeric_limits<I>::is_signed) {
 	k0 = (std::max)(I{0}, k0);
 	k1 = (std::max)(I{0}, k1);
@@ -731,62 +747,63 @@ sieve(I k0, I k1, Fct ff)
     using U = std::make_unsigned_t<I>;
     const U n0 = U(k0), n1 = U(k1);
 
+    constexpr U maxn = std::numeric_limits<U>::max();
+    constexpr U innerRangeSize = []() {
+		if constexpr (is_one_of_v<U, uint8_t, uint16_t>) {
+		    return maxn;
+		} else { 
+		    return U{48*1024*1024};
+		} }();
     std::vector<details::Bitmap> bitmaps;
+    bitmaps.reserve((n1 - n0)/innerRangeSize + 1);
     std::vector<T> prefix;
-    const U rangeSize = [n1](){
+    prefix.reserve(3);
+ 
+
+    for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : U(n0 + innerRangeSize));
+        a0 < n1;
+        a0 = (maxn - innerRangeSize < a0) ? maxn : a0 + innerRangeSize,
+	a1 = std::min(n1, maxn - innerRangeSize < a0 ? maxn : U(a0 + innerRangeSize))) {
+
+        const U rangeSize = [n1](){
 	    if constexpr (is_one_of_v<U, uint8_t, uint16_t, uint32_t>) {
 	        return (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
 	    } else {
 		// Established through tests
 		if(n1 >= U{55}<<54) {
-		    return U{48*1024*1024};
+		    return U{16*1024*1024};
 		}
-		return (std::min)(U{2*1024*1024},
+		return (std::min)(U{16*1024*1024},
 		            U{1} << ((std::bit_width(n1) + 1)/2));
 	    } }();
-    constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
-    for(U m0 = 0, m1 = rangeSize;
-        (m0 < (U{1} << (std::numeric_limits<U>::digits / 2)) - 1) &&  (m0 * m0 <= n1);
-	m0 = m1, 
-	   m1 = (maxm - m1 >= rangeSize) ? m1 + rangeSize : maxm) {
-	details::Bitmap primesBmp;
-	constexpr auto basePrimes = []() {
-		   if constexpr (std::is_same_v<U, uint8_t>
-				   || std::is_same_v<U, uint16_t>) return u8primes<U>();
-		   else return u16primes;
+         constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
+	 bitmaps.emplace_back(details::Bitmap{});
+	 auto & currSegBmp = bitmaps.back();
+
+         for(U m0 = 0, m1 = rangeSize;
+             (m0 < (U{1} << (std::numeric_limits<U>::digits / 2)) - 1) &&  (m0 * m0 <= a1);
+	     m0 = m1, 
+	       m1 = (maxm - m1 >= rangeSize) ? m1 + rangeSize : maxm) {
+	     details::Bitmap primesBmp;
+	     constexpr auto basePrimes = []() {
+		   if constexpr (std::is_same_v<U, uint8_t> || std::is_same_v<U, uint16_t>) {
+		       return u8primes<U>();
+		   } else {
+		       return u16primes;
+		   }
 		}();
-	details::inner_sieve<U>(basePrimes, m0, m1,
-	  [](auto, auto, details::Bitmap const * zbmp){
-	  }, primesBmp);
-	details::PrimesIterator<U> itP{&primesBmp}, itPe{&primesBmp, true};
-	auto basePrimesRange = std::ranges::subrange(itP, itPe);
-	constexpr U maxn = std::numeric_limits<U>::max();
-	constexpr U innerRangeSize = []() {
-		if constexpr (is_one_of_v<U, uint8_t, uint16_t>) {
-		    return maxn;
-		} else { 
-		    return U{24*1024*1024};
-		} }();
-	int k = 0;
-        for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : U(n0 + innerRangeSize));
-	    a0 < n1;
-            a0 = (maxn - innerRangeSize < a0) ? maxn : a0 + innerRangeSize,
-	      a1 = std::min(n1, maxn - innerRangeSize < a0 ? maxn : U(a0 + innerRangeSize)),
-	      ++k) {
-            bool initBmp = false;
-	    if(bitmaps.size() == k) {
-                bitmaps.push_back(details::Bitmap{});
-		initBmp = true;
-	    }
-	    auto & currBmp = bitmaps[k];
-	    details::inner_sieve<T>(basePrimesRange, a0, a1,
+	     details::inner_sieve<U>(basePrimes, m0, m1,
+	        [](auto, auto, details::Bitmap const *){ }, primesBmp);
+	     details::PrimesIterator<U> itP{&primesBmp}, itPe{&primesBmp, true};
+	     auto basePrimesRange = std::ranges::subrange(itP, itPe);
+	     details::inner_sieve<T>(basePrimesRange, a0, a1,
 	             [&](auto it, auto ite, details::Bitmap const*){
 		         if(it != ite) {
 			     prefix = std::vector<T>{it, ite};
 			 }
 		         return 0;
-		     },  currBmp, initBmp);
-	}
+		     },  currSegBmp, m0 == 0);
+        }
     }
     return ff(prefix, bitmaps);
 }
