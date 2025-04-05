@@ -67,7 +67,117 @@ private:
     static unsigned int defaultCount();
 };
 
+
 namespace details {
+
+/// Applies given mask to value starting at bit value + offs.
+/// @pre  0 <= offs < std::numeric_limits<U>::digits
+template <typename U, typename V>
+constexpr void mask_at(U & value, V offs, U mask)
+{
+    value &= ((mask >> offs) | (offs ? (~U{} << (std::numeric_limits<U>::digits - offs)) : 0));
+}
+
+/// Applies to value, starting at bit 0 i.e. the msb, the part of mask starting at bit mask + offs.
+/// @pre  0 <= offs < std::numeric_limits<U>::digits
+template <typename U, typename V>
+constexpr void mask(U & value, U mask, V offs)
+{
+    value &= (offs ? (mask << (std::numeric_limits<U>::digits - offs)) : U{}) | (~U{} >> offs);
+}
+
+template <typename U, std::size_t p>
+struct bitmask_impl
+{
+    constexpr bitmask_impl();
+    constexpr auto const & values() const;
+    constexpr std::size_t size() const;
+    template <typename T>
+    constexpr int offset(T c) const;
+    constexpr U word_at(std::size_t idx) const;
+    constexpr std::size_t prime() const;
+
+private:
+    constexpr void reset(std::size_t idx);
+    static const auto digits_ = std::numeric_limits<U>::digits;
+    static constexpr std::size_t size_ = 8 * p;
+    std::array<U, (size_ + digits_ - 1) / digits_> v_;
+    std::array<int, 8> offs_;
+};
+
+template <typename U, std::size_t p>
+constexpr bitmask_impl<U, p>::bitmask_impl()
+{
+    v_.fill(~U{});
+    constexpr std::array<int, 8> residues{1, 7, 11, 13, 17, 19, 23, 29};
+    constexpr std::array<int, 8> wheel   {6, 4,  2,  4,  2,  4,  6,  2};
+    for(int i0 = p * p, i = i0, wi = ((i % 30 == 1) ? 0 : 5), j = 0;
+        i < i0 + 30 * p;
+        i += wheel[wi], wi = (wi + 1) % 8, ++j) {
+        if((i - i0) % (2 * p)) {
+            continue;
+        }
+        offs_[(i % 30) * 4 / 15] = j;
+        reset(j);
+    }
+    // Padding the last word by repeating the beginning of the mask
+    // eases its application to a bitmap.
+    if(size_ % digits_) {
+        auto v0 = v_[0];
+        for(auto i = size_ % digits_; i < digits_; i += size_) {
+            v_.back() &= (~U{} << (digits_ - i)) | (v0 >> i);
+        }
+    }
+}
+
+template <typename U, std::size_t p>
+constexpr auto const & bitmask_impl<U, p>::values() const
+{
+    return v_;
+}
+
+template <typename U, std::size_t p>
+constexpr std::size_t bitmask_impl<U, p>::size() const
+{
+    return size_;
+}
+
+template <typename U, std::size_t p>
+template <typename T>
+constexpr int bitmask_impl<U, p>::offset(T c) const
+{
+    return offs_[(c % 30) * 4 / 15];
+}
+
+template <typename U, std::size_t p>
+constexpr U bitmask_impl<U, p>::word_at(std::size_t idx) const
+{
+    auto widx = idx /digits_;
+    auto shift = idx % digits_;
+    return (idx + digits_ < size())
+             ? (shift ? (v_[widx] << shift) | (v_[widx + 1] >> (digits_ - shift))
+                     : v_[widx])
+             : (widx == v_.size() - 1)
+               ? ((v_[widx] << shift) & (~U{} << (digits_ - (size() % digits_ - shift))))
+                 | (v_[0] >> ((size() % digits_ - shift)))
+               : (v_[widx] << shift) | (v_[widx + 1] >> (digits_ - shift));
+}
+
+template <typename U, std::size_t p>
+constexpr void bitmask_impl<U, p>::reset(std::size_t idx)
+{
+    v_[idx / digits_] &= ~(U{1} << (digits_ - 1 - (idx % digits_)));
+}
+
+template <typename U, std::size_t p>
+constexpr std::size_t bitmask_impl<U, p>::prime() const
+{
+    return p;
+}
+
+template <std::size_t prime>
+using bitmask = bitmask_impl<uint64_t, prime>;
+
 
 template <typename T> class PrimesIterator;
 
@@ -80,6 +190,8 @@ public:
     constexpr std::size_t size() const;
     constexpr std::size_t indexOf(uint64_t val) const;
     constexpr void reset(std::size_t index);
+    template <std::size_t prime, typename V>
+    constexpr void apply(bitmask_impl<uint64_t, prime> const & bmk, V c);
     constexpr uint64_t popcount() const;
     void check() const;
     constexpr uint8_t at(std::size_t index) const;
@@ -96,6 +208,7 @@ private:
     static constexpr std::array<int,8> deltas_{6,4,2,4,2,4,6,2};
     using ElemType = decltype(vec_)::value_type;
     using NumLim = std::numeric_limits<ElemType>;
+    static constexpr std::size_t digits_{std::numeric_limits<ElemType>::digits};
 
     template <typename T> friend class PrimesIterator;
 };
@@ -114,7 +227,7 @@ Bitmap::Bitmap(uint64_t n0, std::size_t size)
   , n0_(n0 + d_[n0 % 30])
 {
     if(size % NumLim::digits) {
-        vec_.back() &= (ElemType{1} << (size % NumLim::digits)) - 1;
+        vec_.back() &= ~ElemType{} << (NumLim::digits - size % NumLim::digits);
     }
 }
 
@@ -128,7 +241,7 @@ Bitmap::assign(uint64_t n0, std::size_t size)
     n0_ = n0 + d_[n0 % 30];
 
     if(size % NumLim::digits) {
-        vec_.back() &= (ElemType{1} << (size % NumLim::digits)) - 1;
+        vec_.back() &= ~ElemType{} << (NumLim::digits - size % NumLim::digits);
     }
 }
 
@@ -152,7 +265,31 @@ constexpr
 void
 Bitmap::reset(std::size_t index)
 {
-    vec_[index / NumLim::digits] &= ~(ElemType{1} << (index % NumLim::digits));
+    vec_[index / NumLim::digits] &= ~(ElemType{1} << (NumLim::digits - 1 - index % NumLim::digits));
+}
+
+template <std::size_t prime, typename V>
+constexpr
+void
+Bitmap::apply(bitmask_impl<uint64_t, prime> const & bmk, V c)
+{
+    auto cOffs = indexOf(c);
+    if(cOffs >= size_) {
+        return;
+    }
+    auto cOffsBmk = bmk.offset(c);
+    for(;
+        cOffs + digits_ < size();
+        cOffs += digits_, cOffsBmk = (cOffsBmk + digits_) % bmk.size()) {
+        auto mask = bmk.word_at(cOffsBmk);
+        details::mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
+        details::mask(vec_[cOffs / digits_ + 1], mask, cOffs % digits_);
+    }
+    auto mask = bmk.word_at(cOffsBmk);
+    mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
+    if(cOffs / digits_ + 1 == vec_.size() - 1) {
+	details::mask(vec_[cOffs / digits_ + 1], mask, cOffs % digits_);
+    }
 }
 
 constexpr
@@ -216,8 +353,8 @@ Bitmap::check() const
         if(k != indexOf(c)) {
             std::cout << "bad index: " << k << " for " << c << std::endl;
         }
-        if(is_prime != ((vec_[k / NumLim::digits] & (1ull << (k % NumLim::digits))) != 0)) {
-            std::cout << "is_prime=" << is_prime << ", " << ((vec_[k / NumLim::digits] & (1ull << (k % NumLim::digits))) != 0) << " | ";
+        if(is_prime != (at(k) != 0)) {
+            std::cout << "is_prime=" << is_prime << ", " << (at(k) != 0) << " | ";
             std::cout << c << " is" << (is_prime ? "" : " not") << " a prime." << std::endl;
         }
     }
@@ -226,7 +363,7 @@ Bitmap::check() const
 constexpr
 uint8_t Bitmap::at(std::size_t index) const
 {
-    return (vec_[index / NumLim::digits] & (ElemType{1} << (index % NumLim::digits))) ? 1 : 0;
+    return (vec_[index / NumLim::digits] >> (NumLim::digits - 1 - index % NumLim::digits)) & 1;
 }
 
 
@@ -361,6 +498,14 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
 	std::array<int,7> offsets{};
         auto offsIdx = 0;
 	auto prevDelta = 0;
+        if(p < 8) {
+	    constexpr bitmask<7> mask_7;
+            if(c > ne) {
+		continue;
+	    }
+	    bmp.apply(mask_7, c);
+	    continue;
+	}	
 	for(auto j = whoffs[(p%30)*4/15][cmod30*4/15]; c <= ne;
 	    c = ((c_max - c < wheel[(p%30)*4/15][j]*p) ? ne + 1 : c + wheel[(p%30)*4/15][j]*p), j = (j+1)%8) {
 	    auto currIdx = bmp.indexOf(c);
