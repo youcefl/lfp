@@ -178,12 +178,53 @@ constexpr std::size_t bitmask_impl<U, p>::prime() const
 template <std::size_t prime>
 using bitmask = bitmask_impl<uint64_t, prime>;
 
+template <typename U, typename V>
+constexpr auto
+find_first_multiple_above(U p, V n0)
+{
+    constexpr int8_t adjt[8][14] = {
+      {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
+      {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
+      {0, 4, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 2},
+      {0, 2, 2, 0, 4, 0, 0, 2, 0, 0, 2, 0, 4, 2},
+      {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 4, 0, 2, 2},
+      {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 4},
+      {0, 2, 4, 0, 4, 0, 0, 2, 0, 0, 2, 0, 2, 2},
+      {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}
+    };
+
+    const auto p2 = p * p;
+    constexpr auto c_max = std::numeric_limits<decltype(p2)>::max();
+    U dp2;
+    auto c = (p2 >= n0) ? p2 : (((dp2 = (n0 - p2 + 2 * p - 1)/(2 * p)*(2 * p)), c_max - p2 < dp2) ? 0 : p2 + dp2);
+    if(!c) {
+        return c;
+    }
+    auto cmod30 = c % 30;
+    switch(cmod30) {
+        case 3: case 5: case 9: case 15: case 21: case 25: case 27: {
+            auto dc = adjt[(p % 30) * 4 / 15][cmod30 >> 1] * p;
+            c = (c_max - c < dc) ? 0 : c + dc;
+            cmod30 = c % 30;
+        }
+        break;
+        default:;
+    }
+    return c;
+}
 
 template <typename T> class PrimesIterator;
 
 class Bitmap
 {
 public:
+    template<typename Ui>
+    using Bitmasks = std::variant<bitmask_impl<Ui, 7>,
+	bitmask_impl<Ui, 11>, bitmask_impl<Ui, 13>, bitmask_impl<Ui, 17>,
+	bitmask_impl<Ui, 19>, bitmask_impl<Ui, 23>, bitmask_impl<Ui, 29>,
+	bitmask_impl<Ui, 31>>;
+
+
     constexpr Bitmap();
     explicit constexpr Bitmap(uint64_t n0, std::size_t size);
     constexpr void assign(uint64_t n0, std::size_t size);
@@ -192,6 +233,7 @@ public:
     constexpr void reset(std::size_t index);
     template <std::size_t prime, typename V>
     constexpr void apply(bitmask_impl<uint64_t, prime> const & bmk, V c);
+    constexpr void apply(std::vector<Bitmasks<uint64_t>> const & masks); 
     constexpr uint64_t popcount() const;
     void check() const;
     constexpr uint8_t at(std::size_t index) const;
@@ -266,6 +308,43 @@ void
 Bitmap::reset(std::size_t index)
 {
     vec_[index / NumLim::digits] &= ~(ElemType{1} << (NumLim::digits - 1 - index % NumLim::digits));
+}
+
+constexpr void
+Bitmap::apply(std::vector<Bitmasks<uint64_t>> const & masks)
+{
+    if(masks.empty()) {
+	return;
+    }
+    struct Offsets { std::size_t offsBmp; std::size_t offsMask; };
+    std::vector<Offsets> offsets;
+    offsets.reserve(masks.size());
+    std::size_t commonStart{};
+    for(auto const & mask : masks) {
+	std::visit([&](auto&& v){
+	    auto c = find_first_multiple_above(v.prime(), n0_);
+            offsets.emplace_back(indexOf(c), v.offset(c));
+	    if(commonStart < offsets.back().offsBmp) {
+	        commonStart = offsets.back().offsBmp;
+	    }
+	}, mask);
+    }
+    auto maskIdx = 0;
+    for(auto const & mask : masks) {
+	std::visit([&](auto&& v){
+	    auto maskOffs = offsets[maskIdx].offsMask;
+            for(auto i = offsets[maskIdx].offsBmp; i < commonStart;
+                i += NumLim::digits, maskOffs = (maskOffs + NumLim::digits) % v.size()) {
+	        auto mask = v.word_at(maskOffs);
+		details::mask_at(vec_[i / digits_], i % digits_, mask);
+		if(i / digits_ + 1 == vec_.size() - 1) {
+		    details::mask(vec_[i / digits_ + 1], mask, i % digits_);
+		}
+	    }
+	    offsets[maskIdx].offsMask = (offsets[maskIdx].offsMask + (commonStart - offsets[maskIdx].offsBmp)) % v.size();
+	}, mask);
+	++maskIdx;
+    }
 }
 
 template <std::size_t prime, typename V>
@@ -367,18 +446,6 @@ uint8_t Bitmap::at(std::size_t index) const
 }
 
 
-
-inline constexpr int8_t adjt[8][14] = {
-    {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
-    {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
-    {0, 4, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 2},
-    {0, 2, 2, 0, 4, 0, 0, 2, 0, 0, 2, 0, 4, 2},
-    {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 4, 0, 2, 2},
-    {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 4},
-    {0, 2, 4, 0, 4, 0, 0, 2, 0, 0, 2, 0, 2, 2},
-    {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}
-};
-
 inline constexpr uint8_t wheel[8][8] = {
     {6,4,2,4,2,4,6,2},
     {4,2,4,2,4,6,2,6},
@@ -468,45 +535,32 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
         bmp.assign(n0, (ne - n0)/30 * 8 + ((ne % 30) >= (n0 % 30) ? (ne%30)*4/15 - (n0%30)*4/15 : 8 - (n0%30)*4/15 + (ne%30)*4/15) + 1);
     }
 
-    for(auto p : smallPrimes | std::views::drop_while([](auto p) { return (p == 2) || (p == 3) || (p == 5); })) {
+    constexpr unsigned smallPrimesThreshold = 32;
+    std::array<Bitmap::Bitmasks<uint64_t>, 8> masks{bitmask<7>{}, bitmask<11>{}, bitmask<13>{}, bitmask<17>{},
+	                   bitmask<19>{}, bitmask<23>{}, bitmask<29>{}, bitmask<31>{}};
+
+    auto smallPrimesCount = std::ranges::distance(smallPrimes
+		             | std::views::take_while([ne](auto p) { return (p < smallPrimesThreshold) && (U{p} * p <= ne); })
+		             | std::views::drop_while([](auto p) { return p < 6;}));
+    bmp.apply(std::vector<Bitmap::Bitmasks<uint64_t>>{std::begin(masks), std::begin(masks) + smallPrimesCount});
+
+    for(auto p : smallPrimes | std::views::drop_while([](auto p) { return p < smallPrimesThreshold; })) {
 	auto p2 = U{p} * p;
 	if(p2 > ne) {
 	    break;
 	}
-        constexpr auto c_max = std::numeric_limits<decltype(p2)>::max();
-	decltype(p2) dp2;
-        auto c = (p2 >= n0) ? p2 : (((dp2 = (n0 - p2 + 2 * p - 1)/(2 * p)*(2 * p)), c_max - p2 < dp2) ? 0 : p2 + dp2);
+	auto c = find_first_multiple_above(p, n0);
 	if(!c) {
 	    continue;
 	}
-        auto cmod30 = c % 30;
-        switch(cmod30) {
-            case 3: case 5: case 9: case 15: case 21: case 25: case 27: {
-		auto dc = adjt[(p % 30) * 4 / 15][cmod30 >> 1] * p;
-		c = (c_max - c < dc) ? 0 : c + dc;
-		cmod30 = c % 30;
-		}
-		break;
-            default:;
-	    }
-	if(!c) {
-	    continue;
-	}
-
+        
+	constexpr auto c_max = std::numeric_limits<decltype(p2)>::max();
 	auto count = 0;
 	int32_t firstIndex = -1;
 	std::array<int,7> offsets{};
         auto offsIdx = 0;
 	auto prevDelta = 0;
-        if(p < 8) {
-	    constexpr bitmask<7> mask_7;
-            if(c > ne) {
-		continue;
-	    }
-	    bmp.apply(mask_7, c);
-	    continue;
-	}	
-	for(auto j = whoffs[(p%30)*4/15][cmod30*4/15]; c <= ne;
+	for(auto j = whoffs[(p%30)*4/15][(c%30)*4/15]; c <= ne;
 	    c = ((c_max - c < wheel[(p%30)*4/15][j]*p) ? ne + 1 : c + wheel[(p%30)*4/15][j]*p), j = (j+1)%8) {
 	    auto currIdx = bmp.indexOf(c);
 	    if(offsIdx == 0) {
