@@ -357,17 +357,18 @@ Bitmap::apply(bitmask_impl<uint64_t, prime> const & bmk, V c)
         return;
     }
     auto cOffsBmk = bmk.offset(c);
-    for(;
-        cOffs + digits_ < size();
-        cOffs += digits_, cOffsBmk = (cOffsBmk + digits_) % bmk.size()) {
-        auto mask = bmk.word_at(cOffsBmk);
-        details::mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
-        details::mask(vec_[cOffs / digits_ + 1], mask, cOffs % digits_);
+    if(cOffs % digits_) {
+	auto mask = bmk.word_at(cOffsBmk);
+	details::mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
+	auto delta = digits_ - (cOffs % digits_);
+	cOffs += delta;
+	cOffsBmk = (cOffsBmk + delta) % bmk.size();
     }
-    auto mask = bmk.word_at(cOffsBmk);
-    mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
-    if(cOffs / digits_ + 1 == vec_.size() - 1) {
-	details::mask(vec_[cOffs / digits_ + 1], mask, cOffs % digits_);
+    const auto bmk_size = bmk.size();
+    const auto dOffsBmk = digits_ % bmk_size;
+    for(std::size_t i = cOffs / digits_; i < vec_.size(); ++i, cOffsBmk += dOffsBmk) {
+	cOffsBmk = (cOffsBmk >= bmk_size) ? cOffsBmk - bmk_size : cOffsBmk;
+	vec_[i] &= bmk.word_at(cOffsBmk);
     }
 }
 
