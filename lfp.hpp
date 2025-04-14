@@ -70,6 +70,17 @@ private:
 
 namespace details {
 
+template <typename T>
+inline constexpr auto  u8primes = std::to_array<T>({
+    2, 3, 5, 7, 11, 13, 17, 19, 23, 29,
+    31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
+    73, 79, 83, 89, 97, 101, 103, 107, 109, 113,
+    127, 131, 137, 139, 149, 151, 157, 163, 167, 173,
+    179, 181, 191, 193, 197, 199, 211, 223, 227, 229,
+    233, 239, 241, 251
+});
+
+
 /// Applies given mask to value starting at bit value + offs.
 /// @pre  0 <= offs < std::numeric_limits<U>::digits
 template <typename U, typename V>
@@ -175,6 +186,112 @@ constexpr std::size_t bitmask_impl<U, p>::prime() const
     return p;
 }
 
+
+template <typename U, uint8_t... SmallPrimes>
+class bitmask_pack
+{
+    static constexpr bool is_prime(uint8_t n);
+public:
+    static_assert(sizeof...(SmallPrimes) != 0, "Expecting at least one prime!");
+    static_assert((is_prime(SmallPrimes) && ...), "Expecting prime numbers below 255!");
+
+    constexpr bitmask_pack() = default;
+    /// Returns the number of bitmask objects in this pack
+    static constexpr auto size();
+    /// Returns a tuple containing all bitmask objects in this pack
+    constexpr auto const & get_all() const;
+    /// Gets the bitmask object at index I
+    template <std::size_t I>
+    constexpr auto const & get() const;
+    /// Returns the largest prime in the SmallPrimes
+    static constexpr std::uint8_t max_prime();
+    /// Returns the combination of the masks at the given offsets
+    template <std::size_t N>
+    constexpr U combined_masks(std::size_t const (&offsets) [N]) const;
+
+private:
+    using primes_sequence = std::integer_sequence<std::size_t, SmallPrimes...>;
+
+    template <std::size_t P, std::size_t... I>
+    static constexpr bool is_in_sequence(std::integer_sequence<std::size_t, I...>);
+
+    static constexpr auto make_masks_tuple();
+
+    template <std::size_t N, std::size_t... I>
+    constexpr U combined_masks_impl(std::size_t const (&offs) [N], std::index_sequence<I...>) const;
+
+    /// Largest prime in SmallPrimes
+    static constexpr std::uint8_t upper_bound_ = []() {
+        constexpr auto smallPrimes = std::to_array<std::size_t>({SmallPrimes...});
+        return *std::max_element(std::begin(smallPrimes), std::end(smallPrimes));
+      } ();
+
+    /// The masks
+    decltype(make_masks_tuple()) masks_;
+};
+
+
+template <typename U, uint8_t... SmallPrimes>
+constexpr auto bitmask_pack<U, SmallPrimes...>::size()
+{
+    return sizeof...(SmallPrimes);
+}
+
+template <typename U, uint8_t... SmallPrimes>
+constexpr auto const & bitmask_pack<U, SmallPrimes...>::get_all() const
+{
+    return masks_;
+}
+
+template <typename U, uint8_t... SmallPrimes>
+template <std::size_t I>
+constexpr auto const & bitmask_pack<U, SmallPrimes...>::get() const
+{
+    return std::get<I>(masks_);
+}
+
+template <typename U, uint8_t... SmallPrimes>
+constexpr std::uint8_t bitmask_pack<U, SmallPrimes...>::max_prime()
+{
+    return upper_bound_;
+}
+
+template <typename U, uint8_t... SmallPrimes>
+template <std::size_t N>
+constexpr U bitmask_pack<U, SmallPrimes...>::combined_masks(std::size_t const (&offs) [N]) const
+{
+    static_assert(N == sizeof...(SmallPrimes),
+        "The number of offsets must be equal to the number of bitmasks in the pack.");
+    return combined_masks_impl(offs, std::make_index_sequence<N>{});
+}
+
+template <typename U, uint8_t... SmallPrimes>
+template <std::size_t P, std::size_t... I>
+constexpr bool bitmask_pack<U, SmallPrimes...>::is_in_sequence(std::integer_sequence<std::size_t, I...>)
+{
+    return ((P == I) || ...);
+}
+
+template <typename U, uint8_t... SmallPrimes>
+constexpr auto bitmask_pack<U, SmallPrimes...>::make_masks_tuple()
+{
+    return std::make_tuple(bitmask_impl<U, SmallPrimes>{}...);
+}
+
+template <typename U, uint8_t... SmallPrimes>
+template <std::size_t N, std::size_t... I>
+constexpr U bitmask_pack<U, SmallPrimes...>::combined_masks_impl(std::size_t const (&offs) [N], std::index_sequence<I...>) const
+{
+    return (std::get<I>(masks_).word_at(offs[I]) & ...);
+}
+
+template <typename U, uint8_t... SmallPrimes>
+constexpr bool bitmask_pack<U, SmallPrimes...>::is_prime(uint8_t n)
+{
+    return std::find(std::begin(u8primes<uint8_t>), std::end(u8primes<uint8_t>),
+                     n) != std::end(u8primes<uint8_t>);
+}
+
 template <std::size_t prime>
 using bitmask = bitmask_impl<uint64_t, prime>;
 
@@ -218,12 +335,7 @@ template <typename T> class PrimesIterator;
 class Bitmap
 {
 public:
-    template<typename Ui>
-    using Bitmasks = std::variant<bitmask_impl<Ui, 7>,
-	bitmask_impl<Ui, 11>, bitmask_impl<Ui, 13>, bitmask_impl<Ui, 17>,
-	bitmask_impl<Ui, 19>, bitmask_impl<Ui, 23>, bitmask_impl<Ui, 29>,
-	bitmask_impl<Ui, 31>>;
-
+    using value_type = uint64_t; // temporary, will become U when the class becomes a template
 
     constexpr Bitmap();
     explicit constexpr Bitmap(uint64_t n0, std::size_t size);
@@ -231,9 +343,10 @@ public:
     constexpr std::size_t size() const;
     constexpr std::size_t indexOf(uint64_t val) const;
     constexpr void reset(std::size_t index);
-    template <std::size_t prime, typename V>
-    constexpr void apply(bitmask_impl<uint64_t, prime> const & bmk, V c);
-    constexpr void apply(std::vector<Bitmasks<uint64_t>> const & masks); 
+    template <std::size_t Prime>
+    constexpr void apply(bitmask_impl<uint64_t, Prime> const & mask);
+    template <uint8_t... Primes>
+    constexpr void apply(bitmask_pack<uint64_t, Primes...> const & maskPack);
     constexpr uint64_t popcount() const;
     void check() const;
     constexpr uint8_t at(std::size_t index) const;
@@ -242,6 +355,18 @@ public:
 
 private:
     template <typename Int> static constexpr std::size_t indexInResidues(Int);
+    
+    struct mask_application_data {
+        std::size_t first_composite_;
+        std::size_t first_composite_index_;
+        std::size_t current_mask_offset_;
+        std::size_t current_bitmap_index_;
+    };
+    template <std::size_t Prime>
+    constexpr mask_application_data compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk) const;
+    template <std::size_t Prime>
+    constexpr void apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset);
+
     std::vector<uint64_t> vec_;
     std::size_t size_;
     uint64_t n0_;
@@ -308,68 +433,6 @@ void
 Bitmap::reset(std::size_t index)
 {
     vec_[index / NumLim::digits] &= ~(ElemType{1} << (NumLim::digits - 1 - index % NumLim::digits));
-}
-
-constexpr void
-Bitmap::apply(std::vector<Bitmasks<uint64_t>> const & masks)
-{
-    if(masks.empty()) {
-	return;
-    }
-    struct Offsets { std::size_t offsBmp; std::size_t offsMask; };
-    std::vector<Offsets> offsets;
-    offsets.reserve(masks.size());
-    std::size_t commonStart{};
-    for(auto const & mask : masks) {
-	std::visit([&](auto&& v){
-	    auto c = find_first_multiple_above(v.prime(), n0_);
-            offsets.emplace_back(indexOf(c), v.offset(c));
-	    if(commonStart < offsets.back().offsBmp) {
-	        commonStart = offsets.back().offsBmp;
-	    }
-	}, mask);
-    }
-    auto maskIdx = 0;
-    for(auto const & mask : masks) {
-	std::visit([&](auto&& v){
-	    auto maskOffs = offsets[maskIdx].offsMask;
-            for(auto i = offsets[maskIdx].offsBmp; i < commonStart;
-                i += NumLim::digits, maskOffs = (maskOffs + NumLim::digits) % v.size()) {
-	        auto mask = v.word_at(maskOffs);
-		details::mask_at(vec_[i / digits_], i % digits_, mask);
-		if(i / digits_ + 1 == vec_.size() - 1) {
-		    details::mask(vec_[i / digits_ + 1], mask, i % digits_);
-		}
-	    }
-	    offsets[maskIdx].offsMask = (offsets[maskIdx].offsMask + (commonStart - offsets[maskIdx].offsBmp)) % v.size();
-	}, mask);
-	++maskIdx;
-    }
-}
-
-template <std::size_t prime, typename V>
-constexpr
-void
-Bitmap::apply(bitmask_impl<uint64_t, prime> const & bmk, V c)
-{
-    auto cOffs = indexOf(c);
-    if(cOffs >= size_) {
-        return;
-    }
-    auto cOffsBmk = bmk.offset(c);
-    if(cOffs % digits_) {
-	auto mask = bmk.word_at(cOffsBmk);
-	details::mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
-	auto delta = digits_ - (cOffs % digits_);
-	cOffs += delta;
-	cOffsBmk = (cOffsBmk + delta) % bmk.size();
-    }
-    const auto bmk_size = bmk.size();
-    const auto dOffsBmk = digits_ % bmk_size;
-    for(std::size_t i = cOffs / digits_; i < vec_.size(); ++i, cOffsBmk += dOffsBmk) {
-	cOffsBmk = (cOffsBmk >= bmk_size) ? cOffsBmk - bmk_size : cOffsBmk;
-	vec_[i] &= bmk.word_at(cOffsBmk);
-    }
 }
 
 constexpr
@@ -446,6 +509,104 @@ uint8_t Bitmap::at(std::size_t index) const
     return (vec_[index / NumLim::digits] >> (NumLim::digits - 1 - index % NumLim::digits)) & 1;
 }
 
+template <std::size_t Prime>
+constexpr Bitmap::mask_application_data
+Bitmap::compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk) const
+{
+    constexpr auto maxSizet = std::numeric_limits<std::size_t>::max();
+    mask_application_data mappData{0, maxSizet, maxSizet, maxSizet};
+
+    const auto p = bmk.prime();
+    auto c = find_first_multiple_above(p, n0_);
+    if(!c) {
+        return mappData;
+    }
+    auto cOffs = indexOf(c);
+    if(cOffs >= size_) {
+        return mappData;
+    }
+    mappData.first_composite_ = c;
+    mappData.first_composite_index_ = cOffs;
+    mappData.current_mask_offset_ = bmk.offset(c);
+    mappData.current_bitmap_index_ = 0;
+    return mappData;
+}
+
+
+template <std::size_t Prime>
+constexpr
+void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk)
+{
+    auto mappData = compute_mask_application_data(bmk);
+    apply(bmk, mappData, size());
+}
+
+
+template <std::size_t Prime>
+constexpr
+void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset)
+{
+//    std::cout << "Applying mask for p = " << bmk.prime()
+//              << "  endOffset = " << endOffset << std::endl;
+    using U = uint64_t; //@todo: remove this once the class is templated
+    if(mappData.first_composite_index_ >= size()) {
+	return;
+    }
+    auto cOffs = mappData.first_composite_index_;
+    if(cOffs > endOffset) {
+	return;
+    }
+    auto cOffsBmk = mappData.current_mask_offset_;
+    const auto bmk_size = bmk.size();
+    if(cOffs % digits_) {
+	auto mask = bmk.word_at(cOffsBmk);
+	auto isEndBeforeWordEnd = (endOffset - cOffs) + (cOffs % digits_) < digits_;
+	mask = isEndBeforeWordEnd
+		? mask | ((~U{} << (digits_ - (cOffs % digits_))) 
+		       | (~U{} >> (cOffs % digits_ + endOffset - cOffs)))
+		: mask;
+	details::mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
+	auto delta = isEndBeforeWordEnd ? endOffset - cOffs : digits_ - (cOffs % digits_);
+	cOffs += delta;
+	cOffsBmk = (cOffsBmk + delta) % bmk_size;
+ 	if(isEndBeforeWordEnd) {
+	    mappData.current_bitmap_index_ = endOffset;
+	    mappData.current_mask_offset_ = cOffsBmk;
+	    return;
+	}
+    }
+    std::size_t i0 = cOffs / digits_;
+    std::size_t i = i0;
+    auto const cOffsBmk0 = cOffsBmk;
+    std::size_t const imax = (endOffset + digits_ - 1) / digits_;
+//    std::cout << "  Looping starting at index " << i << "*64 while index < " << imax << "*64" << std::endl;
+    for(; i < imax; ++i, cOffsBmk = (cOffsBmk + digits_) % bmk_size) {
+        vec_[i] &= bmk.word_at(cOffsBmk);
+    }
+    cOffs += (i - i0) * digits_;
+    cOffsBmk = (cOffsBmk0 + (i - i0) * digits_) % bmk_size;
+    if(endOffset % digits_) {
+        auto mask = bmk.word_at(cOffsBmk);
+	details::mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
+	auto delta = endOffset - cOffs;
+	cOffs += delta;
+	cOffsBmk = (cOffsBmk + delta) % bmk_size;
+    }
+    mappData.current_bitmap_index_ = cOffs;
+    mappData.current_mask_offset_ = cOffsBmk;
+}
+
+
+template <uint8_t... Primes>
+constexpr
+void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
+{
+    mask_application_data mappData[maskPack.size()];
+    [&]<std::size_t... I>(std::index_sequence<I...>){
+        ((mappData[I] = compute_mask_application_data(maskPack.template get<I>())),...);
+    }(std::make_index_sequence<maskPack.size()>{});
+}
+
 
 inline constexpr uint8_t wheel[8][8] = {
     {6,4,2,4,2,4,6,2},
@@ -469,17 +630,6 @@ inline constexpr uint8_t whoffs[8][8] = {
     {0, 7, 6, 5, 4, 3, 2, 1}    
 };
 
-template <typename T>
-constexpr std::array<T,54> u8primes()
-{
-    return std::array<T,54> {
-        2, 3, 5, 7, 11, 13, 17, 19, 23, 29,
-        31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
-        73, 79, 83, 89, 97, 101, 103, 107, 109, 113,
-        127, 131, 137, 139, 149, 151, 157, 163, 167, 173,
-        179, 181, 191, 193, 197, 199, 211, 223, 227, 229,
-        233, 239, 241, 251};
-}
 
 // Returns the smallest integer coprime to 30 and greater than or equal to @param n0
 template <typename Ret, typename U>
@@ -536,16 +686,14 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
         bmp.assign(n0, (ne - n0)/30 * 8 + ((ne % 30) >= (n0 % 30) ? (ne%30)*4/15 - (n0%30)*4/15 : 8 - (n0%30)*4/15 + (ne%30)*4/15) + 1);
     }
 
-    constexpr unsigned smallPrimesThreshold = 32;
-    std::array<Bitmap::Bitmasks<uint64_t>, 8> masks{bitmask<7>{}, bitmask<11>{}, bitmask<13>{}, bitmask<17>{},
-	                   bitmask<19>{}, bitmask<23>{}, bitmask<29>{}, bitmask<31>{}};
+    // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmap
+    constexpr unsigned int lastSmallPrime = 31;
+    constexpr unsigned int smallPrimesThreshold = lastSmallPrime + 1;
+    bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
+	         7, 11, 13, 17, 19, 23, 29, lastSmallPrime> bitmasks;
+    bmp.apply(bitmasks);
 
-    auto smallPrimesCount = std::ranges::distance(smallPrimes
-		             | std::views::take_while([ne](auto p) { return (p < smallPrimesThreshold) && (U{p} * p <= ne); })
-		             | std::views::drop_while([](auto p) { return p < 6;}));
-    bmp.apply(std::vector<Bitmap::Bitmasks<uint64_t>>{std::begin(masks), std::begin(masks) + smallPrimesCount});
-
-    for(auto p : smallPrimes | std::views::drop_while([](auto p) { return p < smallPrimesThreshold; })) {
+    for(auto p : smallPrimes | std::views::drop_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })) {
 	auto p2 = U{p} * p;
 	if(p2 > ne) {
 	    break;
@@ -915,16 +1063,16 @@ constexpr std::size_t SieveResults<T>::count()
 
 namespace details {
 
-constexpr auto u16primes = []() {
+template <typename T>
+inline constexpr auto u16primes = []() {
     auto sv = [] {
-	constexpr auto basePrimes = u8primes<uint16_t>();
         Bitmap bmp;
         return inner_sieve<uint16_t>(
-		    u8primes<uint16_t>(), uint16_t(0), uint16_t(65535),
+		    u8primes<uint16_t>, uint16_t(0), uint16_t(65535),
 		    collectSieveResults<uint16_t>,
 		    bmp);
     };
-    std::array<uint16_t, sv().size()> u16primesArr;
+    std::array<T, sv().size()> u16primesArr;
     std::ranges::copy(sv(), std::begin(u16primesArr));
     return u16primesArr;
   }();
@@ -987,9 +1135,9 @@ sieve(I k0, I k1, Fct ff)
 	     details::Bitmap primesBmp;
 	     constexpr auto basePrimes = []() {
 		   if constexpr (std::is_same_v<U, uint8_t> || std::is_same_v<U, uint16_t>) {
-		       return u8primes<U>();
+		       return u8primes<U>;
 		   } else {
-		       return u16primes;
+		       return u16primes<uint16_t>;
 		   }
 		}();
 	     details::inner_sieve<U>(basePrimes, m0, m1,
@@ -1126,4 +1274,5 @@ std::size_t count_primes(U n0, U n1, Threads const & threads)
 }
 
 } // namespace lfp
+
 
