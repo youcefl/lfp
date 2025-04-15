@@ -163,6 +163,7 @@ constexpr int bitmask_impl<U, p>::offset(T c) const
 template <typename U, std::size_t p>
 constexpr U bitmask_impl<U, p>::word_at(std::size_t idx) const
 {
+    idx = idx % size();
     auto widx = idx /digits_;
     auto shift = idx % digits_;
     return (idx + digits_ < size())
@@ -601,9 +602,10 @@ template <uint8_t... Primes>
 constexpr
 void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
 {
+    constexpr auto masksCount = maskPack.size();
     // We apply each mask individualy until we reach an offset where they can be applied
     // all together.
-    mask_application_data mappData[maskPack.size()];
+    mask_application_data mappData[masksCount];
     [&]<std::size_t... I>(std::index_sequence<I...>){
         ((mappData[I] = compute_mask_application_data(maskPack.template get<I>())),...);
     }(std::make_index_sequence<maskPack.size()>{});
@@ -618,7 +620,7 @@ void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
 	// in such cases we apply the applicable masks one by one.
 	[&]<std::size_t... I>(std::index_sequence<I...>) {
 	    ((apply(maskPack.template get<I>(), mappData[I], size())),...);
-	}(std::make_index_sequence<maskPack.size()>{});
+	}(std::make_index_sequence<masksCount>{});
 
 	return;
     }
@@ -627,8 +629,22 @@ void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
     commonStart = (commonStart % digits_) ? commonStart + (digits_ - commonStart % digits_) : commonStart;
     [&]<std::size_t... I>(std::index_sequence<I...>){
 	((apply(maskPack.template get<I>(), mappData[I], commonStart)),...);
-    }(std::make_index_sequence<maskPack.size()>{});
+    }(std::make_index_sequence<masksCount>{});
 
+    // Apply all masks combined from commonStart on
+    alignas(64) std::size_t offsets[masksCount];
+    std::ranges::copy(mappData | std::views::transform([&](auto const & dat){
+			      return dat.current_mask_offset_; }), std::begin(offsets));
+    auto incOffsetsImpl = [&]<std::size_t... I>(std::index_sequence<I...>){
+	(((offsets[I] += digits_),
+	(offsets[I] = (offsets[I] >= maskPack.template get<I>().size()) ? offsets[I] - maskPack.template get<I>().size() : offsets[I])),...);
+      };
+    auto incOffsets = [&](){ incOffsetsImpl(std::make_index_sequence<std::size(offsets)>{}); };
+    for(std::size_t i = mappData[0].current_bitmap_index_ / digits_; i < vec_.size(); ++i) {
+	auto mask = maskPack.combined_masks(offsets);
+	incOffsets();
+	vec_[i] &= mask;
+    }
 }
 
 
