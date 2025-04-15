@@ -373,6 +373,7 @@ private:
     static constexpr std::array<int,30> d_{1,0,5,4,3,2,1,0,3,2,1,0,1,0,3,2,1,0,1,0,3,2,1,0,5,4,3,2,1,0};
     static constexpr std::array<int,8> residues_{1,7,11,13,17,19,23,29};
     static constexpr std::array<int,8> deltas_{6,4,2,4,2,4,6,2};
+    static constexpr auto nopos_ = (std::numeric_limits<std::size_t>::max)();
     using ElemType = decltype(vec_)::value_type;
     using NumLim = std::numeric_limits<ElemType>;
     static constexpr std::size_t digits_{std::numeric_limits<ElemType>::digits};
@@ -513,8 +514,7 @@ template <std::size_t Prime>
 constexpr Bitmap::mask_application_data
 Bitmap::compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk) const
 {
-    constexpr auto maxSizet = std::numeric_limits<std::size_t>::max();
-    mask_application_data mappData{0, maxSizet, maxSizet, maxSizet};
+    mask_application_data mappData{0, nopos_, nopos_, nopos_};
 
     const auto p = bmk.prime();
     auto c = find_first_multiple_above(p, n0_);
@@ -601,10 +601,34 @@ template <uint8_t... Primes>
 constexpr
 void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
 {
+    // We apply each mask individualy until we reach an offset where they can be applied
+    // all together.
     mask_application_data mappData[maskPack.size()];
     [&]<std::size_t... I>(std::index_sequence<I...>){
         ((mappData[I] = compute_mask_application_data(maskPack.template get<I>())),...);
     }(std::make_index_sequence<maskPack.size()>{});
+
+    auto commonStart = std::max_element(std::begin(mappData), std::end(mappData),
+        [](auto const & x, auto const & y){
+            return x.first_composite_index_ < y.first_composite_index_;
+        })->first_composite_index_;
+
+    if(commonStart == nopos_) {
+	// At least one prime has no multiple to cross out in the bitmap,
+	// in such cases we apply the applicable masks one by one.
+	[&]<std::size_t... I>(std::index_sequence<I...>) {
+	    ((apply(maskPack.template get<I>(), mappData[I], size())),...);
+	}(std::make_index_sequence<maskPack.size()>{});
+
+	return;
+    }
+
+    // Apply each mask till commonStart and then perform a combined application of the masks
+    commonStart = (commonStart % digits_) ? commonStart + (digits_ - commonStart % digits_) : commonStart;
+    [&]<std::size_t... I>(std::index_sequence<I...>){
+	((apply(maskPack.template get<I>(), mappData[I], commonStart)),...);
+    }(std::make_index_sequence<maskPack.size()>{});
+
 }
 
 
