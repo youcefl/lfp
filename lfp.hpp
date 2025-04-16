@@ -163,8 +163,15 @@ constexpr int bitmask_impl<U, p>::offset(T c) const
 template <typename U, std::size_t p>
 constexpr U bitmask_impl<U, p>::word_at(std::size_t idx) const
 {
-    idx = idx % size();
-    auto widx = idx /digits_;
+    if(!std::is_constant_evaluated()) {
+        if(idx >= size()) {
+            //std::cout << "bitmask for " << p << ", requested word starting at " << idx << ", size is " << size() << std::endl;
+	    idx = idx % size();
+	}
+    } else {
+	idx = idx % size();
+    }
+    auto widx = idx / digits_;
     auto shift = idx % digits_;
     return (idx + digits_ < size())
              ? (shift ? (v_[widx] << shift) | (v_[widx + 1] >> (digits_ - shift))
@@ -547,14 +554,16 @@ template <std::size_t Prime>
 constexpr
 void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset)
 {
-//    std::cout << "Applying mask for p = " << bmk.prime()
-//              << "  endOffset = " << endOffset << std::endl;
-    using U = uint64_t; //@todo: remove this once the class is templated
-    if(mappData.first_composite_index_ >= size()) {
-	return;
+    if(0 && !std::is_constant_evaluated()) {
+        std::cout << "Applying mask for p = " << bmk.prime()
+                  << " | endOffset = " << endOffset << std::endl;
+        std::cout << "  first composite = " << mappData.first_composite_
+		  << " (index: " << mappData.first_composite_index_ << ")\n"
+		  << "  mask offset: " << mappData.current_mask_offset_ << std::endl;
     }
+    using U = uint64_t; //@todo: remove this once the class is templated
     auto cOffs = mappData.first_composite_index_;
-    if(cOffs > endOffset) {
+    if((cOffs >= endOffset) || (cOffs > size())) {
 	return;
     }
     auto cOffsBmk = mappData.current_mask_offset_;
@@ -562,12 +571,19 @@ void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_d
     if(cOffs % digits_) {
 	auto mask = bmk.word_at(cOffsBmk);
 	auto isEndBeforeWordEnd = (endOffset - cOffs) + (cOffs % digits_) < digits_;
+	if(0 && !std::is_constant_evaluated()) {
+	    std::cout << "  mask before modification: " << mask << std::endl;
+	}
 	mask = isEndBeforeWordEnd
-		? mask | ((~U{} << (digits_ - (cOffs % digits_))) 
-		       | (~U{} >> (cOffs % digits_ + endOffset - cOffs)))
+		? mask | (~U{} >> (cOffs % digits_ + endOffset - cOffs))
 		: mask;
 	details::mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
 	auto delta = isEndBeforeWordEnd ? endOffset - cOffs : digits_ - (cOffs % digits_);
+	if(0 && !std::is_constant_evaluated()) {
+	    std::cout << "  isEndBeforeWordEnd = " << isEndBeforeWordEnd << "\n"
+		      << "  applied mask " << mask << " at offset " << cOffs << "\n"
+		      << "  delta = " << delta << std::endl;
+	}
 	cOffs += delta;
 	cOffsBmk = (cOffsBmk + delta) % bmk_size;
  	if(isEndBeforeWordEnd) {
@@ -579,17 +595,24 @@ void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_d
     std::size_t i0 = cOffs / digits_;
     std::size_t i = i0;
     auto const cOffsBmk0 = cOffsBmk;
-    std::size_t const imax = (endOffset + digits_ - 1) / digits_;
-//    std::cout << "  Looping starting at index " << i << "*64 while index < " << imax << "*64" << std::endl;
+    std::size_t const imax = endOffset / digits_;
+    if(0 && !std::is_constant_evaluated()) {
+        std::cout << "  Looping starting at index " << i << "*" << digits_ << ", while index < " << imax << "*" << digits_ << std::endl;
+	std::cout << "  mask offset at start: " << cOffsBmk << std::endl;
+    }
     for(; i < imax; ++i, cOffsBmk = (cOffsBmk + digits_) % bmk_size) {
+	if(0 && !std::is_constant_evaluated()) {
+	    std::cout << "  applying " << bmk.word_at(cOffsBmk) << " at index " << i * digits_ << std::endl; 
+	}
         vec_[i] &= bmk.word_at(cOffsBmk);
     }
-    cOffs += (i - i0) * digits_;
-    cOffsBmk = (cOffsBmk0 + (i - i0) * digits_) % bmk_size;
-    if(endOffset % digits_) {
+    auto delta = (i - i0) * digits_;
+    cOffs += delta;
+    cOffsBmk = (cOffsBmk0 + delta) % bmk_size;
+    if((cOffs < size()) && (endOffset % digits_)) {
         auto mask = bmk.word_at(cOffsBmk);
 	details::mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
-	auto delta = endOffset - cOffs;
+	delta = endOffset - cOffs;
 	cOffs += delta;
 	cOffsBmk = (cOffsBmk + delta) % bmk_size;
     }
@@ -636,13 +659,19 @@ void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
     std::ranges::copy(mappData | std::views::transform([&](auto const & dat){
 			      return dat.current_mask_offset_; }), std::begin(offsets));
     auto incOffsetsImpl = [&]<std::size_t... I>(std::index_sequence<I...>){
-	(((offsets[I] += digits_),
+	(((offsets[I] += digits_ % maskPack.template get<I>().size()),
 	(offsets[I] = (offsets[I] >= maskPack.template get<I>().size()) ? offsets[I] - maskPack.template get<I>().size() : offsets[I])),...);
       };
     auto incOffsets = [&](){ incOffsetsImpl(std::make_index_sequence<std::size(offsets)>{}); };
     for(std::size_t i = mappData[0].current_bitmap_index_ / digits_; i < vec_.size(); ++i) {
 	auto mask = maskPack.combined_masks(offsets);
+	auto offs0 = offsets[0];
 	incOffsets();
+	if(offsets[0] >= maskPack.template get<0>().size()) {
+	    if(0 && !std::is_constant_evaluated()) {
+		std::cout << "Divergence detected: new offset: " << offsets[0] << ", old offset: " << offs0 << std::endl;
+	    }
+	}
 	vec_[i] &= mask;
     }
 }

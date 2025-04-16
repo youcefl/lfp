@@ -17,10 +17,10 @@ OBJS=static_tests.o
 all: $(OBJS) lfp tests
 
 lfp: main.cpp lfp.hpp
-	$(CXX) $(CXFLAGS) -o lfp main.cpp
+	$(CXX) $(CXFLAGS) -o $@ main.cpp
 
 static_tests.o: static_tests.cpp lfp.hpp
-	$(CXX) $(CXFLAGS) -c static_tests.cpp
+	$(CXX) $(CXFLAGS) -o $@ -c static_tests.cpp
 
 tests: tests.cpp lfp.hpp
 	$(CXX) $(CXFLAGS) $(TEST_LIB_INCL_OPT) -o tests tests.cpp $(TEST_LIB_LIB_OPT)  $(TEST_LIBS)
