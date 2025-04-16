@@ -97,101 +97,162 @@ constexpr void mask(U & value, U mask, V offs)
     value &= (offs ? (mask << (std::numeric_limits<U>::digits - offs)) : U{}) | (~U{} >> offs);
 }
 
-template <typename U, std::size_t p>
-struct bitmask_impl
+
+using use_dictionary_t = bool;
+
+template <typename U, std::size_t P, use_dictionary_t UseDictionary = P < 32, std::size_t Alignment = 64>
+class bitmask_impl
 {
-    constexpr bitmask_impl();
-    constexpr auto const & values() const;
-    constexpr std::size_t size() const;
-    template <typename T>
-    constexpr int offset(T c) const;
-    constexpr U word_at(std::size_t idx) const;
+public:
+    constexpr bitmask_impl() = default;
+
+    /// Returns the prime corresponding to this bitmask.
     constexpr std::size_t prime() const;
+    /// Returns the size of the bitmask
+    constexpr std::size_t size() const;
+    /// Returns the word at offset idx.
+    /// The bitmask is cyclic: if (idx + digits_) > size() the returned word is
+    // the concatenation of the bits in the ranges [idx, size()[ and [0, idx[.
+    /// @pre idx < size()
+    constexpr U word_at(std::size_t idx) const;
+    /// Returns the offset in the bitmask corresponding to the composite c
+    /// @pre c is coprime to 30 and of the form p^2 + 2kp (k being an integer >= 0).
+    constexpr auto offset(std::size_t c) const;
 
 private:
-    constexpr void reset(std::size_t idx);
-    static const auto digits_ = std::numeric_limits<U>::digits;
-    static constexpr std::size_t size_ = 8 * p;
-    std::array<U, (size_ + digits_ - 1) / digits_> v_;
-    std::array<int, 8> offs_;
+    static constexpr U word_at(U * data, std::size_t idx);
+
+    /// Loops on numbers that are coprime to 30 in range [p^2, p^2 + 30p[
+    /// calling f(i, j) each time i is of the form p^2+2kp, j being the index of i
+    /// relative to the index of p^2 which is always zero. 
+    template <typename Func>
+    static constexpr void for_each_coprime_to_30(Func f);
+    static constexpr auto compute_offsets();  
+    static constexpr auto compute_data();
+
+    static constexpr auto digits_ = std::numeric_limits<U>::digits;
+    static constexpr auto size_ = 8 * P;
+    static constexpr std::size_t data_size_ = UseDictionary 
+                                      ? size_ : 1 + (size_ + digits_ - 1) / digits_;
+    alignas(Alignment) static constexpr std::array<U, data_size_> data_ = compute_data();
+    static constexpr std::array<uint16_t, 8> offs_ = compute_offsets();
 };
 
-template <typename U, std::size_t p>
-constexpr bitmask_impl<U, p>::bitmask_impl()
+
+template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
+constexpr std::size_t
+bitmask_impl<U, P, UseDictionary, Alignment>::prime() const
 {
-    v_.fill(~U{});
-    constexpr std::array<int, 8> residues{1, 7, 11, 13, 17, 19, 23, 29};
-    constexpr std::array<int, 8> wheel   {6, 4,  2,  4,  2,  4,  6,  2};
-    for(int i0 = p * p, i = i0, wi = ((i % 30 == 1) ? 0 : 5), j = 0;
-        i < i0 + 30 * p;
-        i += wheel[wi], wi = (wi + 1) % 8, ++j) {
-        if((i - i0) % (2 * p)) {
-            continue;
-        }
-        offs_[(i % 30) * 4 / 15] = j;
-        reset(j);
-    }
-    // Padding the last word by repeating the beginning of the mask
-    // eases its application to a bitmap.
-    if(size_ % digits_) {
-        auto v0 = v_[0];
-        for(auto i = size_ % digits_; i < digits_; i += size_) {
-            v_.back() &= (~U{} << (digits_ - i)) | (v0 >> i);
-        }
-    }
+    return P;
 }
 
-template <typename U, std::size_t p>
-constexpr auto const & bitmask_impl<U, p>::values() const
-{
-    return v_;
-}
 
-template <typename U, std::size_t p>
-constexpr std::size_t bitmask_impl<U, p>::size() const
+template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
+constexpr std::size_t
+bitmask_impl<U, P, UseDictionary, Alignment>::size() const
 {
     return size_;
 }
 
-template <typename U, std::size_t p>
-template <typename T>
-constexpr int bitmask_impl<U, p>::offset(T c) const
+
+template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
+constexpr U
+bitmask_impl<U, P, UseDictionary, Alignment>::word_at(std::size_t idx) const
+{
+    if constexpr(UseDictionary) {
+        return data_[idx];            
+    } else {
+        return word_at(&data_[0], idx);
+    }
+}
+
+
+template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
+constexpr auto
+bitmask_impl<U, P, UseDictionary, Alignment>::offset(std::size_t c) const
 {
     return offs_[(c % 30) * 4 / 15];
 }
 
-template <typename U, std::size_t p>
-constexpr U bitmask_impl<U, p>::word_at(std::size_t idx) const
-{
-    if(!std::is_constant_evaluated()) {
-        if(idx >= size()) {
-            //std::cout << "bitmask for " << p << ", requested word starting at " << idx << ", size is " << size() << std::endl;
-	    idx = idx % size();
-	}
-    } else {
-	idx = idx % size();
-    }
-    auto widx = idx / digits_;
+
+template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
+constexpr U
+bitmask_impl<U, P, UseDictionary, Alignment>::word_at(U * data, std::size_t idx) {
+    auto widx = idx /digits_;
     auto shift = idx % digits_;
-    return (idx + digits_ < size())
-             ? (shift ? (v_[widx] << shift) | (v_[widx + 1] >> (digits_ - shift))
-                     : v_[widx])
-             : (widx == v_.size() - 1)
-               ? ((v_[widx] << shift) & (~U{} << (digits_ - (size() % digits_ - shift))))
-                 | (v_[0] >> ((size() % digits_ - shift)))
-               : (v_[widx] << shift) | (v_[widx + 1] >> (digits_ - shift));
+    return shift ? (data[widx] << shift) | (data[widx + 1] >> (digits_ - shift))
+                : data[widx];
 }
 
-template <typename U, std::size_t p>
-constexpr void bitmask_impl<U, p>::reset(std::size_t idx)
+
+template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
+template <typename Func>
+constexpr void
+bitmask_impl<U, P, UseDictionary, Alignment>::for_each_coprime_to_30(Func f)
 {
-    v_[idx / digits_] &= ~(U{1} << (digits_ - 1 - (idx % digits_)));
+    constexpr std::array<int, 8> residues{1, 7, 11, 13, 17, 19, 23, 29};
+    constexpr std::array<int, 8> wheel   {6, 4,  2,  4,  2,  4,  6,  2};
+    for(int i0 = P * P, i = i0, wi = ((i % 30 == 1) ? 0 : 5), j = 0;
+        i < i0 + 30 * P;
+        i += wheel[wi], wi = (wi + 1) % 8, ++j) {
+        if((i - i0) % (2 * P)) {
+            continue;
+        }
+        f(i, j);
+    }
 }
 
-template <typename U, std::size_t p>
-constexpr std::size_t bitmask_impl<U, p>::prime() const
+
+template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
+constexpr auto
+bitmask_impl<U, P, UseDictionary, Alignment>::compute_offsets()
 {
-    return p;
+    std::remove_cv_t<decltype(offs_)> offsets;
+    for_each_coprime_to_30([&offsets](auto i, auto j) {
+        offsets[(i % 30) * 4 / 15] = j;
+    });
+    return offsets;
+} 
+
+
+template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
+constexpr auto
+bitmask_impl<U, P, UseDictionary, Alignment>::compute_data()
+{
+    std::array<U, 1 + (size_ + digits_ - 1) / digits_> bits;
+    std::ranges::fill(bits, ~U{});
+    for_each_coprime_to_30([&bits](auto, auto j) {
+        bits[j / digits_] &= ~(U{1} << (digits_ - 1 - (j % digits_)));
+    });
+
+    // Fill remaining bits by copying from the beginning.
+    if(size_ % digits_) {
+        std::size_t d = 0, t = size_;
+        for(; t < bits.size() * digits_;) {
+            auto dsh = d % digits_;
+            auto tsh = t % digits_;
+            auto shm = size_ - d < digits_ ? size_ - d : digits_ - dsh;
+            bits[t / digits_] &= (( (bits[d / digits_]  << dsh)
+                                | (shm >= digits_ ? U{} : ~U{} >> shm)
+                                ) >> tsh) | (tsh ? ~U{} << (digits_ - tsh) : U{});
+            auto srcBits = (std::min)(digits_ - d % digits_, size_ - d);
+            auto dstBits = digits_ - t % digits_;
+            auto writtenBits = (std::min)(srcBits, dstBits);
+            d = (d + writtenBits) % size_;
+            t += writtenBits;
+        }
+    } else {
+        bits.back() = bits[0];
+    }
+    if constexpr(UseDictionary) {
+        std::array<U, data_size_> dictionary;
+        for(std::size_t i = 0; i < size_; ++i) {
+            dictionary[i] = word_at(&bits[0], i);
+        }
+        return dictionary;
+    } else {
+        return bits;
+    }
 }
 
 
@@ -1343,5 +1404,6 @@ std::size_t count_primes(U n0, U n1, Threads const & threads)
 }
 
 } // namespace lfp
+
 
 
