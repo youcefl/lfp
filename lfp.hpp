@@ -71,7 +71,7 @@ private:
 namespace details {
 
 template <typename T>
-inline constexpr auto  u8primes = std::to_array<T>({
+inline constexpr auto u8primes = std::to_array<T>({
     2, 3, 5, 7, 11, 13, 17, 19, 23, 29,
     31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
     73, 79, 83, 89, 97, 101, 103, 107, 109, 113,
@@ -364,11 +364,7 @@ constexpr bool bitmask_pack<U, SmallPrimes...>::is_prime(uint8_t n)
 template <std::size_t prime>
 using bitmask = bitmask_impl<uint64_t, prime>;
 
-template <typename U, typename V>
-constexpr auto
-find_first_multiple_above(U p, V n0)
-{
-    constexpr int8_t adjt[8][14] = {
+inline constexpr int8_t adjt[8][14] = {
       {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
       {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
       {0, 4, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 2},
@@ -379,6 +375,10 @@ find_first_multiple_above(U p, V n0)
       {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}
     };
 
+template <typename U, typename V>
+constexpr auto
+find_first_multiple_above(U p, V n0)
+{
     const auto p2 = p * p;
     constexpr auto c_max = std::numeric_limits<decltype(p2)>::max();
     U dp2;
@@ -615,13 +615,6 @@ template <std::size_t Prime>
 constexpr
 void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset)
 {
-    if(0 && !std::is_constant_evaluated()) {
-        std::cout << "Applying mask for p = " << bmk.prime()
-                  << " | endOffset = " << endOffset << std::endl;
-        std::cout << "  first composite = " << mappData.first_composite_
-		  << " (index: " << mappData.first_composite_index_ << ")\n"
-		  << "  mask offset: " << mappData.current_mask_offset_ << std::endl;
-    }
     using U = uint64_t; //@todo: remove this once the class is templated
     auto cOffs = mappData.first_composite_index_;
     if((cOffs >= endOffset) || (cOffs > size())) {
@@ -632,19 +625,11 @@ void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_d
     if(cOffs % digits_) {
 	auto mask = bmk.word_at(cOffsBmk);
 	auto isEndBeforeWordEnd = (endOffset - cOffs) + (cOffs % digits_) < digits_;
-	if(0 && !std::is_constant_evaluated()) {
-	    std::cout << "  mask before modification: " << mask << std::endl;
-	}
 	mask = isEndBeforeWordEnd
 		? mask | (~U{} >> (cOffs % digits_ + endOffset - cOffs))
 		: mask;
 	details::mask_at(vec_[cOffs / digits_], cOffs % digits_, mask);
 	auto delta = isEndBeforeWordEnd ? endOffset - cOffs : digits_ - (cOffs % digits_);
-	if(0 && !std::is_constant_evaluated()) {
-	    std::cout << "  isEndBeforeWordEnd = " << isEndBeforeWordEnd << "\n"
-		      << "  applied mask " << mask << " at offset " << cOffs << "\n"
-		      << "  delta = " << delta << std::endl;
-	}
 	cOffs += delta;
 	cOffsBmk = (cOffsBmk + delta) % bmk_size;
  	if(isEndBeforeWordEnd) {
@@ -657,14 +642,7 @@ void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_d
     std::size_t i = i0;
     auto const cOffsBmk0 = cOffsBmk;
     std::size_t const imax = endOffset / digits_;
-    if(0 && !std::is_constant_evaluated()) {
-        std::cout << "  Looping starting at index " << i << "*" << digits_ << ", while index < " << imax << "*" << digits_ << std::endl;
-	std::cout << "  mask offset at start: " << cOffsBmk << std::endl;
-    }
     for(; i < imax; ++i, cOffsBmk = (cOffsBmk + digits_) % bmk_size) {
-	if(0 && !std::is_constant_evaluated()) {
-	    std::cout << "  applying " << bmk.word_at(cOffsBmk) << " at index " << i * digits_ << std::endl; 
-	}
         vec_[i] &= bmk.word_at(cOffsBmk);
     }
     auto delta = (i - i0) * digits_;
@@ -728,11 +706,6 @@ void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
 	auto mask = maskPack.combined_masks(offsets);
 	auto offs0 = offsets[0];
 	incOffsets();
-	if(offsets[0] >= maskPack.template get<0>().size()) {
-	    if(0 && !std::is_constant_evaluated()) {
-		std::cout << "Divergence detected: new offset: " << offsets[0] << ", old offset: " << offs0 << std::endl;
-	    }
-	}
 	vec_[i] &= mask;
     }
 }
@@ -766,11 +739,14 @@ template <typename Ret, typename U>
 constexpr
 Ret compute_gte_coprime(U n0)
 {
-    constexpr uint8_t dn0[30] = {
-	    1, 0, 5, 4, 3, 2, 1, 0, 3, 2, 1, 0, 1, 0, 3,
-	    2, 1, 0, 1, 0, 3, 2, 1, 0, 5, 4, 3, 2, 1, 0};
-    return Ret{n0} + dn0[n0 % 30];
+    constexpr uint8_t dn[30] = {
+        1, 0, 5, 4, 3, 2, 1, 0, 3, 2, 1, 0, 1, 0, 3,
+        2, 1, 0, 1, 0, 3, 2, 1, 0, 5, 4, 3, 2, 1, 0
+      };
+
+    return Ret{n0} + dn[n0 % 30];
 }
+
 
 // Returns the largest ineteger coprime to 30 and less than @param n1
 template <typename Ret, typename U>
@@ -778,8 +754,10 @@ constexpr
 Ret compute_lt_coprime(U n1)
 {
     constexpr uint8_t dn[30] = {
-	    1, 2, 1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 1, 2, 1,
-	    2, 3, 4, 1, 2, 1, 2, 3, 4, 1, 2, 3, 4, 5, 6};
+        1, 2, 1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 1, 2, 1,
+        2, 3, 4, 1, 2, 1, 2, 3, 4, 1, 2, 3, 4, 5, 6
+      };
+
     return Ret{n1} - dn[n1 % 30];
 }
 
