@@ -100,7 +100,7 @@ constexpr void mask(U & value, U mask, V offs)
 
 using use_dictionary_t = bool;
 
-template <typename U, std::size_t P, use_dictionary_t UseDictionary = P < 32, std::size_t Alignment = 64>
+template <typename U, std::size_t P, use_dictionary_t UseDictionary = P < 128, std::size_t Alignment = 64>
 class bitmask_impl
 {
 public:
@@ -120,7 +120,7 @@ public:
     constexpr auto offset(std::size_t c) const;
 
 private:
-    static constexpr U word_at(U * data, std::size_t idx);
+    static constexpr U word_at(U const * data, std::size_t idx);
 
     /// Loops on numbers that are coprime to 30 in range [p^2, p^2 + 30p[
     /// calling f(i, j) each time i is of the form p^2+2kp, j being the index of i
@@ -177,7 +177,8 @@ bitmask_impl<U, P, UseDictionary, Alignment>::offset(std::size_t c) const
 
 template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
 constexpr U
-bitmask_impl<U, P, UseDictionary, Alignment>::word_at(U * data, std::size_t idx) {
+bitmask_impl<U, P, UseDictionary, Alignment>::word_at(U const * data, std::size_t idx)
+{
     auto widx = idx /digits_;
     auto shift = idx % digits_;
     return shift ? (data[widx] << shift) | (data[widx + 1] >> (digits_ - shift))
@@ -795,11 +796,17 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
     }
 
     // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmap
-    constexpr unsigned int lastSmallPrime = 31;
+    constexpr unsigned int lastSmallPrime = 103;
     constexpr unsigned int smallPrimesThreshold = lastSmallPrime + 1;
     bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
-	         7, 11, 13, 17, 19, 23, 29, lastSmallPrime> bitmasks;
-    bmp.apply(bitmasks);
+	         7, 11, 13, 17, 19, 23, 29, 31> bitmasks_1;
+    bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
+	         37, 41, 43, 47, 53, 59, 61, 67> bitmasks_2;
+    bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
+	         71, 73, 79, 83, 89, 97, 101, lastSmallPrime> bitmasks_3;
+    bmp.apply(bitmasks_1);
+    bmp.apply(bitmasks_2);
+    bmp.apply(bitmasks_3);
 
     for(auto p : smallPrimes | std::views::drop_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })) {
 	auto p2 = U{p} * p;
