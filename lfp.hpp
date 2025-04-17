@@ -806,7 +806,7 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
 	if(p2 > ne) {
 	    break;
 	}
-	auto c = find_first_multiple_above(p, n0);
+	auto c = find_first_multiple_above(decltype(p2){p}, n0);
 	if(!c) {
 	    continue;
 	}
