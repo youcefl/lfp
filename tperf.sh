@@ -52,7 +52,7 @@ for ((i = 0; i < ${#ranges[@]}; i += 2)); do
   for ((t = 0; t < ${#threads_c[@]}; t += 1)); do
     thrd=${threads_c[t]}
     durations=()
-    for j in {1..6}; do
+    for j in {1..5}; do
       s=$(./lfp -t $thrd $n0 $n1)
       tpc=$(echo $s | sed 's:.*is \([0-9]\+\)\..*:\1:g')
       if [[ $primes_c == 0 ]]; then

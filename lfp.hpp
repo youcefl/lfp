@@ -97,6 +97,71 @@ constexpr void mask(U & value, U mask, V offs)
     value &= (offs ? (mask << (std::numeric_limits<U>::digits - offs)) : U{}) | (~U{} >> offs);
 }
 
+template <typename U, std::size_t Alignment = 64>
+struct allocator
+{
+    static_assert(Alignment >= alignof(U));
+    static_assert((Alignment & (Alignment - 1)) == 0, "Alignment must be a power of two.");
+
+    using value_type = U;
+
+    template <typename V>
+    struct rebind {
+	using other =  allocator<V, Alignment>;
+    };
+
+    static constexpr std::align_val_t alignment {Alignment};
+
+    constexpr allocator() = default;
+
+    template <typename V>
+    constexpr allocator(allocator<V, Alignment> const &) noexcept;
+
+    [[nodiscard]] constexpr U* allocate(std::size_t n);
+
+    constexpr void deallocate(U* ptr, std::size_t /*n*/) noexcept;
+
+    friend bool operator==(allocator const &, allocator const &) noexcept { return true; }
+    friend bool operator!=(allocator const &, allocator const &) noexcept { return false; }
+};
+
+
+template <typename U, std::size_t Alignment>
+template <typename V>
+constexpr
+allocator<U, Alignment>::allocator(allocator<V, Alignment> const &) noexcept
+{}
+
+template <typename U, std::size_t Alignment>
+[[nodiscard]] constexpr U*
+allocator<U, Alignment>::allocate(std::size_t n)
+{
+    if(std::is_constant_evaluated()) {
+        return new U[n];
+    }
+    if(n > std::numeric_limits<std::size_t>::max() / sizeof(U))
+    {
+        throw std::bad_array_new_length{};
+    }
+    auto ptr = ::operator new(n * sizeof(U), alignment);
+    if(ptr) {
+        return static_cast<U*>(ptr);
+    }
+    throw std::bad_alloc{};
+}
+
+
+template <typename U, std::size_t Alignment>
+constexpr void
+allocator<U, Alignment>::deallocate(U* ptr, std::size_t /*n*/) noexcept
+{
+    if(std::is_constant_evaluated()) {
+        delete [] ptr;
+        return;
+    }
+    ::operator delete(ptr, alignment);
+
+}
 
 using use_dictionary_t = bool;
 
@@ -437,7 +502,7 @@ private:
     template <std::size_t Prime>
     constexpr void apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset);
 
-    std::vector<uint64_t> vec_;
+    std::vector<uint64_t, allocator<uint64_t, 64>> vec_;
     std::size_t size_;
     uint64_t n0_;
     static constexpr std::array<int,30> d_{1,0,5,4,3,2,1,0,3,2,1,0,1,0,3,2,1,0,1,0,3,2,1,0,5,4,3,2,1,0};
@@ -700,14 +765,15 @@ void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
 			      return dat.current_mask_offset_; }), std::begin(offsets));
     auto incOffsetsImpl = [&]<std::size_t... I>(std::index_sequence<I...>){
 	(((offsets[I] += digits_ % maskPack.template get<I>().size()),
-	(offsets[I] = (offsets[I] >= maskPack.template get<I>().size()) ? offsets[I] - maskPack.template get<I>().size() : offsets[I])),...);
+	(offsets[I] = (offsets[I] >= maskPack.template get<I>().size())
+	                 ? offsets[I] - maskPack.template get<I>().size() : offsets[I])),...);
       };
-    auto incOffsets = [&](){ incOffsetsImpl(std::make_index_sequence<std::size(offsets)>{}); };
+    auto incOffsets = [&](){ incOffsetsImpl(std::make_index_sequence<masksCount>{}); };
+
     for(std::size_t i = mappData[0].current_bitmap_index_ / digits_; i < vec_.size(); ++i) {
 	auto mask = maskPack.combined_masks(offsets);
-	auto offs0 = offsets[0];
-	incOffsets();
 	vec_[i] &= mask;
+	incOffsets();
     }
 }
 
@@ -798,20 +864,30 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
     // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmap
     constexpr unsigned int lastSmallPrime = 103;
     constexpr unsigned int smallPrimesThreshold = lastSmallPrime + 1;
-    bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
-	         7, 11, 13, 17, 19, 23, 29, 31> bitmasks_1;
-    bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
-	         37, 41, 43, 47, 53, 59, 61, 67> bitmasks_2;
-    bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
-	         71, 73, 79, 83, 89, 97, 101, lastSmallPrime> bitmasks_3;
-    bmp.apply(bitmasks_1);
-    bmp.apply(bitmasks_2);
-    bmp.apply(bitmasks_3);
+    if(std::ranges::distance(smallPrimes | std::views::take_while([](auto p) { return p < smallPrimesThreshold; }))) {
+        bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
+                 7, 11, 13, 17, 19, 23, 29, 31> bitmasks_1;
+        bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
+                 37, 41, 43, 47, 53, 59, 61, 67> bitmasks_2;
+        bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
+                 71, 73, 79, 83, 89, 97, 101, lastSmallPrime> bitmasks_3;
+        bmp.apply(bitmasks_1);
+        bmp.apply(bitmasks_2);
+        bmp.apply(bitmasks_3);
+    }
 
     for(auto p : smallPrimes | std::views::drop_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })) {
 	auto p2 = U{p} * p;
 	if(p2 > ne) {
 	    break;
+	}
+	// Early continue if p has no multiple in the current segment. The first condition is to avoid paying the cost of
+	// a modulo when there is a higher probability of p having a multiple in the current segment.
+	// This doesn't worsen things too much in the lower ranges while improving the performances in the higher ranges.
+	if(p > ne - n0) {
+            if(auto n0_mod_p = n0 % p; n0_mod_p && (p - n0_mod_p > ne - n0)) {
+	        continue;
+            }
 	}
 	auto c = find_first_multiple_above(decltype(p2){p}, n0);
 	if(!c) {
