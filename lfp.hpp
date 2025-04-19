@@ -663,7 +663,7 @@ Bitmap::compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk)
     mappData.first_composite_ = c;
     mappData.first_composite_index_ = cOffs;
     mappData.current_mask_offset_ = bmk.offset(c);
-    mappData.current_bitmap_index_ = 0;
+    mappData.current_bitmap_index_ = cOffs;
     return mappData;
 }
 
