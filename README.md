@@ -43,7 +43,8 @@ auto sieveRes = sieve<int32_t>(0, 10000000, lfp::Threads{8});
 auto rng = sieveRes.range();
 std::vector<int32_t> primes{rng.begin(), rng.end()};
 
-// Sieve range [10^8 and 10^8+10^7) using the default number of concurrent threads, then iterate over the resulting primes
+// Sieve range [10^8 and 10^8+10^7) using the default number of concurrent threads, then
+// iterate over the resulting primes
 for(auto p : sieve<uint32_t>(100000000, 110000000, lfp::Threads{})) {
 }
 
@@ -125,8 +126,12 @@ public:
 
 The sieve is optimized in the following ways:
  - numbers that are not coprime to 30 i.e. divisible by 2, 3 or 5 are not considered, this is a well known way to speed-up a sieve called wheel factorization.
+ - a range $R = [n0, n1[$ to be sieved is represented by a sequence of bits, called a bitmap, to each bit corresponds one and only one of the integers coprime to 30 in $R$, thus we only consume about $\frac{4}{15}(n1 - n0)$ bits of memory to represent R.
+ - when crossing out the multiples of a prime $p$, we start at $p^{2}$ and, since we are using a modulo 30 wheel, we only consider the multiples of $p$ of the form $p^{2} + 2kp$ ($k$ being an integer >= 0) that are coprime to 30.
+ - for each prime $p$ below a certain threshold (currently 104), we precompute a bitmask of length $8p$ at compile time. These bitmasks are applied in batches—e.g., in one pass, we cross out multiples of {7, 11, ..., 31}. The threshold 104 was chosen to group primes into three sets of eight (optimized for batch processing) and empirically showed better performance than higher values (though future tuning may optimize this further).
  - the sieve is segmented i.e. if the size of the range R to sieve exceeds a certain threshold S, R is split into segments of size at most S.
  - the sieve is multithreaded, we allocate N threads and each thread deals with part of the range to sieve.
+ - the memory allocated for a bitmap is 64-byte aligned.
 
 The following table gives an idea of the performances to expect from the sieve (all durations are in seconds):
 
