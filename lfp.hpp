@@ -21,6 +21,7 @@
 #include <thread>
 #include <future>
 #include <variant>
+#include <cassert>
 
 
 namespace lfp {
@@ -430,6 +431,78 @@ constexpr bool bitmask_pack<U, SmallPrimes...>::is_prime(uint8_t n)
 template <std::size_t prime>
 using bitmask = bitmask_impl<uint64_t, prime>;
 
+
+template <std::size_t Offsets, typename PrimeT>
+class bucket
+{
+public:
+    static_assert(Offsets >= 1, "There must be at least one offset.");
+    struct entry {
+        /// Offsets of the bits to clear corresponding to multiples of prime_
+	/// The offsets to clear are offsets_[0], offsets_[0] + offsets_[1], ..., offsets_[0]+offsets_[7]
+        alignas(64) std::uint32_t offsets_[Offsets];
+        PrimeT prime_;
+    };
+    using entries_type = std::vector<entry>;
+public:
+    using offsets = decltype(entry::offsets_);
+    constexpr explicit bucket(std::size_t initialCapacity);
+    constexpr std::size_t size() const;
+    constexpr entries_type const & entries() const;
+    constexpr void clear();
+    constexpr offsets & add(PrimeT prime, std::uint32_t offsetOfPrime);
+private:
+    entries_type entries_;
+    std::size_t size_;
+};
+
+template <std::size_t Offsets, typename PrimeT>
+constexpr
+bucket<Offsets, PrimeT>::bucket(std::size_t initialCapacity)
+    : size_(0)
+{
+    entries_.reserve(initialCapacity);
+}
+
+template <std::size_t Offsets, typename PrimeT>
+constexpr std::size_t
+bucket<Offsets, PrimeT>::size() const
+{
+    return size_;
+}
+
+template <std::size_t Offsets, typename PrimeT>
+constexpr void
+bucket<Offsets, PrimeT>::clear()
+{
+    size_ = 0;
+}
+
+
+template <std::size_t Offsets, typename PrimeT>
+constexpr bucket<Offsets, PrimeT>::offsets &
+bucket<Offsets, PrimeT>::add(PrimeT prime, std::uint32_t offsetOfPrime)
+{
+    if(size_  < entries_.size()) {
+        entries_[size_] = entry{.prime_ = prime};
+    } else {
+        entries_.push_back(entry{.prime_ = prime});
+    }
+    auto & offsets = entries_[size_].offsets_;
+    offsets[0] = offsetOfPrime;
+    ++size_;
+    return offsets;
+}
+
+template <std::size_t Offsets, typename PrimeT>
+constexpr bucket<Offsets, PrimeT>::entries_type const &
+bucket<Offsets, PrimeT>::entries() const
+{
+    return entries_;
+}
+
+
+
 inline constexpr int8_t adjt[8][14] = {
       {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
       {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
@@ -467,6 +540,7 @@ find_first_multiple_above(U p, V n0)
 
 template <typename T> class PrimesIterator;
 
+
 class Bitmap
 {
 public:
@@ -482,6 +556,8 @@ public:
     constexpr void apply(bitmask_impl<uint64_t, Prime> const & mask);
     template <uint8_t... Primes>
     constexpr void apply(bitmask_pack<uint64_t, Primes...> const & maskPack);
+    template <std::size_t NumOffsets>
+    constexpr void apply(bucket<NumOffsets, value_type> const & bkt);
     constexpr uint64_t popcount() const;
     void check() const;
     constexpr uint8_t at(std::size_t index) const;
@@ -501,10 +577,12 @@ private:
     constexpr mask_application_data compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk) const;
     template <std::size_t Prime>
     constexpr void apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset);
+    constexpr void apply(bucket<1, value_type>::entry const & entry);
+    constexpr void apply(bucket<8, value_type>::entry const & entry);
 
     std::vector<uint64_t, allocator<uint64_t, 64>> vec_;
     std::size_t size_;
-    uint64_t n0_;
+    value_type n0_;
     static constexpr std::array<int,30> d_{1,0,5,4,3,2,1,0,3,2,1,0,1,0,3,2,1,0,1,0,3,2,1,0,5,4,3,2,1,0};
     static constexpr std::array<int,8> residues_{1,7,11,13,17,19,23,29};
     static constexpr std::array<int,8> deltas_{6,4,2,4,2,4,6,2};
@@ -777,6 +855,56 @@ void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
     }
 }
 
+template <std::size_t NumOffsets>
+constexpr void
+Bitmap::apply(bucket<NumOffsets, value_type> const & bkt)
+{
+    static_assert(NumOffsets == 1 || NumOffsets == 8,
+		  "The number of offsets must be 1 or 8, other values not supported yet!");
+    auto const & entries = bkt.entries();
+    if(entries.empty()) {
+        return;
+    }
+    for(auto const & entry : entries) {
+        apply(entry);
+    }
+}
+
+
+constexpr void
+Bitmap::apply(bucket<1, value_type>::entry const & entry)
+{
+    assert(entry.offsets_[0] < size_);
+    reset(entry.offsets_[0]);
+}
+
+
+constexpr void
+Bitmap::apply(bucket<8, value_type>::entry const & entry)
+{
+    std::size_t i = entry.offsets_[0];
+    auto const & offsets = entry.offsets_;
+    auto p = entry.prime_;
+    if(offsets[7]) {
+        for(; i + 8 * p < size_; i += 8 * p) {
+            reset(i);
+            reset(i + offsets[1]);
+            reset(i + offsets[2]);
+            reset(i + offsets[3]);
+            reset(i + offsets[4]);
+            reset(i + offsets[5]);
+            reset(i + offsets[6]);
+            reset(i + offsets[7]);
+        }
+    }
+    const auto i0 = i;
+    for(auto j = 1; i < size_; i = i0 + offsets[j], ++j) {
+        reset(i);
+        if((j == std::size(offsets)) || !offsets[j]) {
+            break;
+        }
+    }
+}
 
 inline constexpr uint8_t wheel[8][8] = {
     {6,4,2,4,2,4,6,2},
@@ -1465,6 +1593,5 @@ std::size_t count_primes(U n0, U n1, Threads const & threads)
 }
 
 } // namespace lfp
-
 
 
