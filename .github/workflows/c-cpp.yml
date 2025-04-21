@@ -35,8 +35,8 @@ jobs:
           cmake --build . -j 8 --target install
 
       - name: Build project
-        run: make
+        run: g++ --version && make all
 
       - name: Run tests
-        run: ./tests -d yes 
+        run: ./tests -d yes
 

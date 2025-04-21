@@ -4,7 +4,9 @@
 # Creation date: december 2024.
 
 CXX ?= g++
-CXFLAGS ?= -std=c++20 -O3 -march=native
+CXFLAGS ?= -std=c++20 -O3 -march=native $(ADDITIONAL_CXFLAGS)
+STATIC_TESTS_CXFLAGS ?=
+SYNTAX_ONLY_FLAG=-fsyntax-only
 TEST_LIBS ?= -lCatch2Main -lCatch2
 TEST_LIB_INSTALL ?= ./Catch2-install
 TEST_LIB_INCL = $(TEST_LIB_INSTALL)/include
@@ -12,20 +14,21 @@ TEST_LIB_INCL_OPT ?= -I$(TEST_LIB_INCL)
 TEST_LIB_LIB = $(TEST_LIB_INSTALL)/lib
 TEST_LIB_LIB_OPT ?= -L$(TEST_LIB_LIB)
 
-OBJS=static_tests.o
-
-all: $(OBJS) lfp tests
 
 lfp: main.cpp lfp.hpp
-	$(CXX) $(CXFLAGS) -o lfp main.cpp
+	$(CXX) $(CXFLAGS) -o $@ main.cpp
 
-static_tests.o: static_tests.cpp lfp.hpp
-	$(CXX) $(CXFLAGS) -c static_tests.cpp
+static_tests: static_tests_1 static_tests_2 static_tests_internals
+	
+
+static_tests_%: static_tests_%.cpp lfp.hpp
+	$(CXX) $(CXFLAGS) $(SYNTAX_ONLY_FLAG) $(STATIC_TESTS_CXFLAGS) $<
 
 tests: tests.cpp lfp.hpp
-	$(CXX) $(CXFLAGS) $(TEST_LIB_INCL_OPT) -o tests tests.cpp $(TEST_LIB_LIB_OPT)  $(TEST_LIBS)
+	$(CXX) $(CXFLAGS) $(TEST_LIB_INCL_OPT) -o $@ $< $(TEST_LIB_LIB_OPT)  $(TEST_LIBS)
+
+all: static_tests lfp tests
 
 clean:
 	rm -f lfp tests
-	rm -f $(OBJS)
 
