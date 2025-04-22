@@ -71,6 +71,11 @@ private:
 
 namespace details {
 
+/// Constants
+inline constexpr std::size_t bucket_sieve_threshold = 16384;
+inline constexpr std::size_t max_num_primes_in_bucket = 16384+8192;
+inline constexpr std::size_t initial_bucket_capacity = 65536;
+
 template <typename T>
 inline constexpr auto u8primes = std::to_array<T>({
     2, 3, 5, 7, 11, 13, 17, 19, 23, 29,
@@ -443,16 +448,16 @@ public:
         alignas(64) std::uint32_t offsets_[Offsets];
         PrimeT prime_;
     };
-    using entries_type = std::vector<entry>;
-public:
     using offsets = decltype(entry::offsets_);
+    constexpr bucket() = default;
     constexpr explicit bucket(std::size_t initialCapacity);
     constexpr std::size_t size() const;
-    constexpr entries_type const & entries() const;
+    constexpr auto entries() const;
     constexpr void clear();
     constexpr offsets & add(PrimeT prime, std::uint32_t offsetOfPrime);
+    constexpr void sort();
 private:
-    entries_type entries_;
+    std::vector<entry> entries_;
     std::size_t size_;
 };
 
@@ -495,10 +500,19 @@ bucket<Offsets, PrimeT>::add(PrimeT prime, std::uint32_t offsetOfPrime)
 }
 
 template <std::size_t Offsets, typename PrimeT>
-constexpr bucket<Offsets, PrimeT>::entries_type const &
+constexpr auto
 bucket<Offsets, PrimeT>::entries() const
 {
-    return entries_;
+    return std::ranges::subrange(std::begin(entries_), std::begin(entries_) + size_);
+}
+
+template <std::size_t Offsets, typename PrimeT>
+constexpr void
+bucket<Offsets, PrimeT>::sort()
+{
+    std::sort(std::begin(entries_), std::end(entries_), [](auto const & x, auto const & y){
+	return x.offsets_[0] < y.offsets_[0];
+      });
 }
 
 
@@ -556,8 +570,8 @@ public:
     constexpr void apply(bitmask_impl<uint64_t, Prime> const & mask);
     template <uint8_t... Primes>
     constexpr void apply(bitmask_pack<uint64_t, Primes...> const & maskPack);
-    template <std::size_t NumOffsets>
-    constexpr void apply(bucket<NumOffsets, value_type> const & bkt);
+    template <std::size_t NumOffsets, typename PrimeT>
+    constexpr void apply(bucket<NumOffsets, PrimeT> & bkt);
     constexpr uint64_t popcount() const;
     void check() const;
     constexpr uint8_t at(std::size_t index) const;
@@ -577,8 +591,10 @@ private:
     constexpr mask_application_data compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk) const;
     template <std::size_t Prime>
     constexpr void apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset);
-    constexpr void apply(bucket<1, value_type>::entry const & entry);
-    constexpr void apply(bucket<8, value_type>::entry const & entry);
+    template <typename PrimeT>
+    constexpr void apply(bucket<1, PrimeT>::entry const & entry);
+    template <typename PrimeT>
+    constexpr void apply(bucket<8, PrimeT>::entry const & entry);
 
     std::vector<uint64_t, allocator<uint64_t, 64>> vec_;
     std::size_t size_;
@@ -855,32 +871,36 @@ void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
     }
 }
 
-template <std::size_t NumOffsets>
+template <std::size_t NumOffsets, typename PrimeT>
 constexpr void
-Bitmap::apply(bucket<NumOffsets, value_type> const & bkt)
+Bitmap::apply(bucket<NumOffsets, PrimeT> & bkt)
 {
     static_assert(NumOffsets == 1 || NumOffsets == 8,
 		  "The number of offsets must be 1 or 8, other values not supported yet!");
-    auto const & entries = bkt.entries();
+    static_assert(sizeof(PrimeT) <= sizeof(value_type));
+    auto entries = bkt.entries();
     if(entries.empty()) {
         return;
     }
+    bkt.sort();
     for(auto const & entry : entries) {
-        apply(entry);
+        apply<PrimeT>(entry);
     }
 }
 
 
+template <typename PrimeT>
 constexpr void
-Bitmap::apply(bucket<1, value_type>::entry const & entry)
+Bitmap::apply(bucket<1, PrimeT>::entry const & entry)
 {
     assert(entry.offsets_[0] < size_);
     reset(entry.offsets_[0]);
 }
 
 
+template <typename PrimeT>
 constexpr void
-Bitmap::apply(bucket<8, value_type>::entry const & entry)
+Bitmap::apply(bucket<8, PrimeT>::entry const & entry)
 {
     std::size_t i = entry.offsets_[0];
     auto const & offsets = entry.offsets_;
@@ -959,9 +979,56 @@ Ret compute_lt_coprime(U n1)
 template <typename T>
 inline constexpr std::array<T,3> primesBelowSix = {2, 3, 5};
 
-template <typename T, typename SP, typename U, typename Func>
+template <typename U, typename V>
+constexpr std::int32_t compute_offsets(std::array<std::uint32_t, 7> & offsets,
+	       Bitmap const & bmp,
+               U p,
+	       V c,
+	       U ne
+	       )
+{
+    std::ranges::fill(offsets, 0);
+    constexpr auto c_max = std::numeric_limits<U>::max();
+    auto count = 0;
+    int32_t firstIndex = -1;
+    auto offsIdx = 0;
+    auto prevDelta = 0;
+    for(auto j = whoffs[(p % 30) * 4 / 15][(c % 30) * 4 / 15];
+        c <= ne;
+	c = ((c_max - c < wheel[(p % 30) * 4 / 15][j] * p)
+		 ? ne + 1 
+		 : c + wheel[(p % 30) * 4 / 15][j] * p), j = (j + 1) % 8) {
+	auto currIdx = bmp.indexOf(c);
+	if(offsIdx == 0) {
+            firstIndex = currIdx;
+	}
+
+	if(offsIdx > 0 && offsIdx <= offsets.size()) {
+            offsets[offsIdx - 1] = currIdx - firstIndex;
+	}
+        ++offsIdx;
+	if(offsIdx > offsets.size()) {
+            break;
+	}
+    }
+    return firstIndex;
+}
+
+template <typename PrimeT>
+struct sieve_data
+{
+   Bitmap * bitmap_ = nullptr;
+   bool have_to_initialize_bitmap_ = true;
+   /// Bucket used when there is one, exactly one hit in the range being sieved
+   bucket<1, PrimeT> bucket_1_hit_;
+   /// Bucket used when there are more than one hit in the range being sieved
+   bucket<8, PrimeT> bucket_8_hits_;
+};
+
+
+template <typename T, typename BP, typename U, typename Func>
 constexpr auto 
-inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool initBmp = true)
+inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data<U> & sievdat)
 {
     auto const & tinyPrimes = primesBelowSix<T>;
     if((n0 >= n1) || (n0 > std::numeric_limits<U>::max() - 2)) {
@@ -981,30 +1048,42 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
 	}
     }
     n0 = compute_gte_coprime<U>(n0);
-    auto ne = compute_lt_coprime<std::size_t>(n1);
+    auto ne = compute_lt_coprime<U>(n1);
     if(n0 > ne) {
         return ff(it0, it0, nullptr);
     }
-    if(initBmp) {
-        bmp.assign(n0, (ne - n0)/30 * 8 + ((ne % 30) >= (n0 % 30) ? (ne%30)*4/15 - (n0%30)*4/15 : 8 - (n0%30)*4/15 + (ne%30)*4/15) + 1);
+    if(sievdat.have_to_initialize_bitmap_) {
+        sievdat.bitmap_->assign(n0, (ne - n0)/30 * 8
+			+ ((ne % 30) >= (n0 % 30) 
+			  ? (ne % 30) * 4 / 15 - (n0 % 30) * 4 / 15
+			  : 8 - (n0 % 30) * 4 / 15 + (ne % 30) * 4 / 15) + 1);
     }
+    auto & bmp = *sievdat.bitmap_;
 
     // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmap
     constexpr unsigned int lastSmallPrime = 103;
     constexpr unsigned int smallPrimesThreshold = lastSmallPrime + 1;
-    if(std::ranges::distance(smallPrimes | std::views::take_while([](auto p) { return p < smallPrimesThreshold; }))) {
-        bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
+    if(std::ranges::distance(basePrimes | std::views::take_while([](auto p) { return p < smallPrimesThreshold; }))) {
+        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
                  7, 11, 13, 17, 19, 23, 29, 31> bitmasks_1;
-        bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
+        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
                  37, 41, 43, 47, 53, 59, 61, 67> bitmasks_2;
-        bitmask_pack<std::remove_cvref_t<decltype(bmp)>::value_type,
+        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
                  71, 73, 79, 83, 89, 97, 101, lastSmallPrime> bitmasks_3;
         bmp.apply(bitmasks_1);
         bmp.apply(bitmasks_2);
         bmp.apply(bitmasks_3);
     }
 
-    for(auto p : smallPrimes | std::views::drop_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })) {
+    std::size_t bucketPrimesCount{};
+    auto applyBucketsAndClear = [&]() {
+        bmp.apply(sievdat.bucket_1_hit_);
+        sievdat.bucket_1_hit_.clear();
+        bmp.apply(sievdat.bucket_8_hits_);
+        sievdat.bucket_8_hits_.clear();
+      };
+
+    for(auto p : basePrimes | std::views::drop_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })) {
 	auto p2 = U{p} * p;
 	if(p2 > ne) {
 	    break;
@@ -1022,31 +1101,30 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
 	    continue;
 	}
         
-	constexpr auto c_max = std::numeric_limits<decltype(p2)>::max();
-	auto count = 0;
-	int32_t firstIndex = -1;
-	std::array<int,7> offsets{};
-        auto offsIdx = 0;
-	auto prevDelta = 0;
-	for(auto j = whoffs[(p%30)*4/15][(c%30)*4/15]; c <= ne;
-	    c = ((c_max - c < wheel[(p%30)*4/15][j]*p) ? ne + 1 : c + wheel[(p%30)*4/15][j]*p), j = (j+1)%8) {
-	    auto currIdx = bmp.indexOf(c);
-	    if(offsIdx == 0) {
-		firstIndex = currIdx;
-	    }
+	std::array<std::uint32_t, 7> offsets;
+	std::int32_t startOffs = compute_offsets<decltype(p2)>(offsets, bmp, p, c, ne);
 
-	    if(offsIdx > 0 && offsIdx <= offsets.size()) {
-		offsets[offsIdx - 1] = currIdx - firstIndex;
-	    }
-            ++offsIdx;
-	    if(offsIdx > offsets.size()) {
-		break;
-	    }
-	}
-	if((firstIndex < 0) || (firstIndex >= bmp.size())) {
+	if((startOffs < 0) || (startOffs >= bmp.size())) {
+	    // No multiple of p greater or equal to  p^2 in the current segment
 	    continue;
 	}
-	std::size_t i = firstIndex;
+	
+	if(p >= bucket_sieve_threshold) {
+            if(!offsets[0]) { // exactly one hit
+                sievdat.bucket_1_hit_.add(p, startOffs);
+	    } else {
+		auto & entryOffsets = sievdat.bucket_8_hits_.add(p, startOffs);
+		std::copy(std::begin(offsets), std::end(offsets), &entryOffsets[1]);
+	    }
+	    ++bucketPrimesCount;
+	    if(bucketPrimesCount == max_num_primes_in_bucket) {
+                applyBucketsAndClear();
+                bucketPrimesCount = 0;
+	    }
+
+	    continue;
+	}
+	std::size_t i = startOffs;
 	if(offsets[6]) {
 	    for(; i + 8 * p < bmp.size(); i += 8 * p) {
 		bmp.reset(i);
@@ -1067,6 +1145,10 @@ inner_sieve(SP const & smallPrimes, U n0, U n1, Func ff, Bitmap & bmp, bool init
 	    }
 	}
     }
+    if(bucketPrimesCount) {
+	applyBucketsAndClear();
+    }
+
     return ff(it0, std::end(tinyPrimes), &bmp);
 }
 
@@ -1386,10 +1468,11 @@ template <typename T>
 inline constexpr auto u16primes = []() {
     auto sv = [] {
         Bitmap bmp;
+	sieve_data<uint16_t> sievdat{.bitmap_ = &bmp};
         return inner_sieve<uint16_t>(
 		    u8primes<uint16_t>, uint16_t(0), uint16_t(65535),
 		    collectSieveResults<uint16_t>,
-		    bmp);
+		    sievdat);
     };
     std::array<T, sv().size()> u16primesArr;
     std::ranges::copy(sv(), std::begin(u16primesArr));
@@ -1425,7 +1508,11 @@ sieve(I k0, I k1, Fct ff)
     bitmaps.reserve((n1 - n0)/innerRangeSize + 1);
     std::vector<T> prefix;
     prefix.reserve(3);
- 
+
+    details::sieve_data<U> sievdat{
+	    .bucket_1_hit_ = details::bucket<1, U>{initial_bucket_capacity},
+            .bucket_8_hits_ = details::bucket<8, U>{initial_bucket_capacity}
+        };
 
     for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : U(n0 + innerRangeSize));
         a0 < n1;
@@ -1459,17 +1546,22 @@ sieve(I k0, I k1, Fct ff)
 		       return u16primes<uint16_t>;
 		   }
 		}();
+	     sievdat.bitmap_ = &primesBmp;
+	     sievdat.have_to_initialize_bitmap_ = true;
 	     details::inner_sieve<U>(basePrimes, m0, m1,
-	        [](auto, auto, details::Bitmap const *){ }, primesBmp);
+	        [](auto, auto, details::Bitmap const *){ }, sievdat);
+
 	     details::PrimesIterator<U> itP{&primesBmp}, itPe{&primesBmp, true};
 	     auto basePrimesRange = std::ranges::subrange(itP, itPe);
+	     sievdat.bitmap_ = &currSegBmp;
+	     sievdat.have_to_initialize_bitmap_ = m0 == 0;
 	     details::inner_sieve<T>(basePrimesRange, a0, a1,
 	             [&](auto it, auto ite, details::Bitmap const*){
 		         if(it != ite) {
 			     prefix = std::vector<T>{it, ite};
 			 }
 		         return 0;
-		     },  currSegBmp, m0 == 0);
+		     },  sievdat);
         }
     }
     return ff(prefix, bitmaps);
