@@ -22,6 +22,7 @@
 #include <future>
 #include <variant>
 #include <cassert>
+#include <span>
 
 
 namespace lfp {
@@ -73,8 +74,8 @@ namespace details {
 
 /// Constants
 inline constexpr std::size_t bucket_sieve_threshold = 16384;
-inline constexpr std::size_t max_num_primes_in_bucket = 16384+8192;
-inline constexpr std::size_t initial_bucket_capacity = 65536;
+inline constexpr std::size_t max_num_primes_in_bucket = 4096;
+inline constexpr std::size_t initial_bucket_capacity = 4096;
 
 template <typename T>
 inline constexpr auto u8primes = std::to_array<T>({
@@ -445,7 +446,7 @@ public:
     struct entry {
         /// Offsets of the bits to clear corresponding to multiples of prime_
 	/// The offsets to clear are offsets_[0], offsets_[0] + offsets_[1], ..., offsets_[0]+offsets_[7]
-        alignas(64) std::uint32_t offsets_[Offsets];
+	std::array<std::uint32_t, Offsets> offsets_;
         PrimeT prime_;
     };
     using offsets = decltype(entry::offsets_);
@@ -454,9 +455,12 @@ public:
     constexpr std::size_t size() const;
     constexpr auto entries() const;
     constexpr void clear();
-    constexpr offsets & add(PrimeT prime, std::uint32_t offsetOfPrime);
+    constexpr void add(PrimeT prime, std::uint32_t offsetOfPrime) requires(Offsets == 1);
+    constexpr void add(PrimeT prime, std::uint32_t offsetOfPrime,
+               std::span<std::uint32_t, Offsets - 1> nextOffsets) requires(Offsets > 1);
     constexpr void sort();
 private:
+    constexpr entry & add_entry(PrimeT prime, std::uint32_t offsetOfPrime);
     std::vector<entry> entries_;
     std::size_t size_;
 };
@@ -483,20 +487,36 @@ bucket<Offsets, PrimeT>::clear()
     size_ = 0;
 }
 
+template <std::size_t Offsets, typename PrimeT>
+constexpr void
+bucket<Offsets, PrimeT>::add(PrimeT prime, std::uint32_t offsetOfPrime) requires(Offsets == 1)
+{
+    add_entry(prime, offsetOfPrime);
+}
 
 template <std::size_t Offsets, typename PrimeT>
-constexpr bucket<Offsets, PrimeT>::offsets &
-bucket<Offsets, PrimeT>::add(PrimeT prime, std::uint32_t offsetOfPrime)
+constexpr void
+bucket<Offsets, PrimeT>::add(PrimeT prime, std::uint32_t offsetOfPrime,
+              std::span<std::uint32_t, Offsets - 1> nextOffsets) requires(Offsets > 1)
 {
+    auto & addedEntry = add_entry(prime, offsetOfPrime);
+    std::ranges::copy(nextOffsets, &addedEntry.offsets_[1]);
+}
+
+template <std::size_t Offsets, typename PrimeT>
+constexpr bucket<Offsets, PrimeT>::entry &
+bucket<Offsets, PrimeT>::add_entry(PrimeT prime, std::uint32_t offsetOfPrime)
+{
+    assert(size_ <= entries_.size());
     if(size_  < entries_.size()) {
         entries_[size_] = entry{.prime_ = prime};
     } else {
         entries_.push_back(entry{.prime_ = prime});
     }
-    auto & offsets = entries_[size_].offsets_;
-    offsets[0] = offsetOfPrime;
+    auto & addedEntry = entries_[size_];
+    addedEntry.offsets_[0] = offsetOfPrime;
     ++size_;
-    return offsets;
+    return addedEntry;
 }
 
 template <std::size_t Offsets, typename PrimeT>
@@ -510,7 +530,12 @@ template <std::size_t Offsets, typename PrimeT>
 constexpr void
 bucket<Offsets, PrimeT>::sort()
 {
-    std::sort(std::begin(entries_), std::end(entries_), [](auto const & x, auto const & y){
+    // Sorting has bad effect on performance deactovated until figuring out what to do
+    // (this condition is always true).
+    if constexpr (Offsets > 0) {
+	return;
+    }
+    std::sort(std::begin(entries_), std::begin(entries_) + size_, [](auto const & x, auto const & y){
 	return x.offsets_[0] < y.offsets_[0];
       });
 }
@@ -1075,8 +1100,7 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data<U> & sievdat)
         bmp.apply(bitmasks_3);
     }
 
-    std::size_t bucketPrimesCount{};
-    auto applyBucketsAndClear = [&]() {
+    auto applyAndClearBuckets = [&]() {
         bmp.apply(sievdat.bucket_1_hit_);
         sievdat.bucket_1_hit_.clear();
         bmp.apply(sievdat.bucket_8_hits_);
@@ -1113,13 +1137,10 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data<U> & sievdat)
             if(!offsets[0]) { // exactly one hit
                 sievdat.bucket_1_hit_.add(p, startOffs);
 	    } else {
-		auto & entryOffsets = sievdat.bucket_8_hits_.add(p, startOffs);
-		std::copy(std::begin(offsets), std::end(offsets), &entryOffsets[1]);
+		sievdat.bucket_8_hits_.add(p, startOffs, offsets);
 	    }
-	    ++bucketPrimesCount;
-	    if(bucketPrimesCount == max_num_primes_in_bucket) {
-                applyBucketsAndClear();
-                bucketPrimesCount = 0;
+	    if(sievdat.bucket_1_hit_.size() + sievdat.bucket_8_hits_.size() >= max_num_primes_in_bucket) {
+                applyAndClearBuckets();
 	    }
 
 	    continue;
@@ -1144,9 +1165,6 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data<U> & sievdat)
 		break;
 	    }
 	}
-    }
-    if(bucketPrimesCount) {
-	applyBucketsAndClear();
     }
 
     return ff(it0, std::end(tinyPrimes), &bmp);
@@ -1502,17 +1520,14 @@ sieve(I k0, I k1, Fct ff)
 		if constexpr (is_one_of_v<U, uint8_t, uint16_t>) {
 		    return maxn;
 		} else { 
-		    return U{48*1024*1024};
+		    return U{24*1024*1024};
 		} }();
-    std::vector<details::Bitmap> bitmaps;
-    bitmaps.reserve((n1 - n0)/innerRangeSize + 1);
     std::vector<T> prefix;
     prefix.reserve(3);
-
-    details::sieve_data<U> sievdat{
-	    .bucket_1_hit_ = details::bucket<1, U>{initial_bucket_capacity},
-            .bucket_8_hits_ = details::bucket<8, U>{initial_bucket_capacity}
-        };
+    std::vector<details::Bitmap> bitmaps;
+    bitmaps.reserve((n1 - n0)/innerRangeSize + 1);
+    std::vector<details::sieve_data<U>> sievdats; 
+    sievdats.reserve((n1 - n0)/innerRangeSize + 1);
 
     for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : U(n0 + innerRangeSize));
         a0 < n1;
@@ -1532,13 +1547,18 @@ sieve(I k0, I k1, Fct ff)
 	    } }();
          constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
 	 bitmaps.emplace_back(details::Bitmap{});
-	 auto & currSegBmp = bitmaps.back();
+	 sievdats.emplace_back(details::sieve_data<U>{
+	     .bitmap_ = &bitmaps.back(),
+	     .bucket_1_hit_ = details::bucket<1, U>{initial_bucket_capacity},
+             .bucket_8_hits_ = details::bucket<8, U>{initial_bucket_capacity}
+           });
+         auto & sievdat = sievdats.back();
 
          for(U m0 = 0, m1 = rangeSize;
              (m0 < (U{1} << (std::numeric_limits<U>::digits / 2)) - 1) &&  (m0 * m0 <= a1);
 	     m0 = m1, 
 	       m1 = (maxm - m1 >= rangeSize) ? m1 + rangeSize : maxm) {
-	     details::Bitmap primesBmp;
+	     details::Bitmap basePrimesBmp;
 	     constexpr auto basePrimes = []() {
 		   if constexpr (std::is_same_v<U, uint8_t> || std::is_same_v<U, uint16_t>) {
 		       return u8primes<U>;
@@ -1546,14 +1566,21 @@ sieve(I k0, I k1, Fct ff)
 		       return u16primes<uint16_t>;
 		   }
 		}();
-	     sievdat.bitmap_ = &primesBmp;
-	     sievdat.have_to_initialize_bitmap_ = true;
+	     auto sievdatForBasePrimes = details::sieve_data<U>{ .bitmap_ = &basePrimesBmp,
+	              .bucket_1_hit_ = details::bucket<1, U>{initial_bucket_capacity},
+                      .bucket_8_hits_ = details::bucket<8, U>{initial_bucket_capacity}
+               };
 	     details::inner_sieve<U>(basePrimes, m0, m1,
-	        [](auto, auto, details::Bitmap const *){ }, sievdat);
+	        [](auto, auto, details::Bitmap const *){ }, sievdatForBasePrimes);
+	     // We have to this here otherwise the iterator below may encounter non-primes.
+	     // Hoisting base primes generation would allow to avoid it...
+	     basePrimesBmp.apply(sievdatForBasePrimes.bucket_1_hit_);
+	     sievdatForBasePrimes.bucket_1_hit_.clear();
+	     basePrimesBmp.apply(sievdatForBasePrimes.bucket_8_hits_);
+	     sievdatForBasePrimes.bucket_8_hits_.clear();
 
-	     details::PrimesIterator<U> itP{&primesBmp}, itPe{&primesBmp, true};
+	     details::PrimesIterator<U> itP{&basePrimesBmp}, itPe{&basePrimesBmp, true};
 	     auto basePrimesRange = std::ranges::subrange(itP, itPe);
-	     sievdat.bitmap_ = &currSegBmp;
 	     sievdat.have_to_initialize_bitmap_ = m0 == 0;
 	     details::inner_sieve<T>(basePrimesRange, a0, a1,
 	             [&](auto it, auto ite, details::Bitmap const*){
@@ -1563,6 +1590,13 @@ sieve(I k0, I k1, Fct ff)
 		         return 0;
 		     },  sievdat);
         }
+    }
+
+    for(std::size_t i = 0; i < bitmaps.size(); ++i) {
+        bitmaps[i].apply(sievdats[i].bucket_1_hit_);
+	sievdats[i].bucket_1_hit_.clear();
+	bitmaps[i].apply(sievdats[i].bucket_8_hits_);
+	sievdats[i].bucket_8_hits_.clear();
     }
     return ff(prefix, bitmaps);
 }
