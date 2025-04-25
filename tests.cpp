@@ -166,14 +166,14 @@ TEST_CASE("Sieve of Erathostenes - primes iterator and range") {
     using namespace lfp::details;
     {
         Bitmap bmp;
-	sieve_data<std::uint32_t> sievdat{.bitmap_ = &bmp};
+	sieve_data sievdat{.bitmap_ = &bmp};
         inner_sieve<uint32_t>(u8primes<uint8_t>, 300u, 400u, [](auto, auto, auto) {}, sievdat);
         PrimesIterator<uint32_t> it{&bmp}, ite{&bmp, true};
         CHECK_THAT(std::vector<uint32_t>(it, ite), Equals(primes_by_division<uint32_t>(300, 400)));
     }
     {
 	Bitmap bmp;
-	sieve_data<std::uint32_t> sievdat{.bitmap_ = &bmp};
+	sieve_data sievdat{.bitmap_ = &bmp};
 	inner_sieve<int32_t>(u16primes<uint16_t>, 10000u, 12000u, [](auto, auto, auto) {}, sievdat);
         PrimesIterator<int32_t> it{&bmp}, ite{&bmp, true};
         CHECK_THAT(std::vector<int32_t>(it, ite), Equals(primes_by_division<int32_t>(10000, 12000)));

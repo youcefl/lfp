@@ -1,9 +1,13 @@
 /*
  * MIT License
- * Copyright (c) 2024 Youcef Lemsafer
+ * Copyright (c) 2024-2025 Youcef Lemsafer
  * See LICENSE file for more details.
  * Creation date: december 2024.
  */
+/// @file lfp.hpp
+/// @brief Header defining the lfp library
+///
+///
 #pragma once
 
 #include <cstdint>
@@ -23,6 +27,14 @@
 #include <variant>
 #include <cassert>
 #include <span>
+
+#ifdef NDEBUG
+# define LFP_ASSERT(...) ((void)0);
+#else
+# ifndef LFP_ASSERT
+#   define LFP_ASSERT(...) assert(__VA_ARGS__)
+# endif
+#endif
 
 
 namespace lfp {
@@ -77,6 +89,10 @@ inline constexpr std::size_t bucket_sieve_threshold = 16384;
 inline constexpr std::size_t max_num_primes_in_bucket = 4096;
 inline constexpr std::size_t initial_bucket_capacity = 4096;
 
+/// Value meaning no offset i.e. the requested value is not present in the sequence
+inline constexpr std::size_t noffs = (std::numeric_limits<std::size_t>::max)();
+
+/// All the primes below 2^8 in ascending order
 template <typename T>
 inline constexpr auto u8primes = std::to_array<T>({
     2, 3, 5, 7, 11, 13, 17, 19, 23, 29,
@@ -86,6 +102,169 @@ inline constexpr auto u8primes = std::to_array<T>({
     179, 181, 191, 193, 197, 199, 211, 223, 227, 229,
     233, 239, 241, 251
 });
+
+/// The really tiny primes, all numbers represented in a bitmap are coprime to
+/// these, but they can still be returned by a sieve e.g. if the user requests
+/// the primes in a range containing one of them.
+template <typename T>
+inline constexpr std::array<T,3> primesBelowSix = {2, 3, 5};
+
+
+// Some two dimensional wheels to speed-up the localization of the multiples of a prime
+inline constexpr uint8_t wheel[8][8] = {
+    {6, 4, 2, 4, 2, 4, 6, 2},
+    {4, 2, 4, 2, 4, 6, 2, 6},
+    {2, 4, 2, 4, 6, 2, 6, 4},
+    {4, 2, 4, 6, 2, 6, 4, 2},
+    {2, 4, 6, 2, 6, 4, 2, 4},
+    {4, 6, 2, 6, 4, 2, 4, 2},
+    {6, 2, 6, 4, 2, 4, 2, 4},
+    {2, 6, 4, 2, 4, 2, 4, 6}
+};
+
+inline constexpr uint8_t whoffs[8][8] = {
+    {0, 1, 2, 3, 4, 5, 6, 7},
+    {2, 7, 5, 4, 1, 0, 6, 3},
+    {0, 2, 6, 4, 7, 5, 1, 3},
+    {6, 2, 1, 5, 4, 0, 7, 3},
+    {2, 6, 7, 3, 4, 0, 1, 5},
+    {0, 6, 2, 4, 1, 3, 7, 5},
+    {6, 1, 3, 4, 7, 0, 2, 5},
+    {0, 7, 6, 5, 4, 3, 2, 1}    
+};
+
+/// "Adjustment" table used for finding the smallest multiple of a prime p
+/// above max(p^2, n0) for a given n0.
+/// More precisely, let p be a prime, we start to cross out the multiples of p
+/// at p^2 but since we are using a mod 30 wheel we need those multiples to be
+/// coprime to 30. What this table does is, once a multiple c of p of the form
+/// p^2 + 2kp is found, it adds to c what needs to be added to make it coprime
+/// to 30.
+inline constexpr int8_t adjt[8][14] = {
+    {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
+    {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
+    {0, 4, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 2},
+    {0, 2, 2, 0, 4, 0, 0, 2, 0, 0, 2, 0, 4, 2},
+    {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 4, 0, 2, 2},
+    {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 4},
+    {0, 2, 4, 0, 4, 0, 0, 2, 0, 0, 2, 0, 2, 2},
+    {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}
+};
+
+/// Computes the smallest multiple m of p such that m >= max(p^2, n0) and
+/// gcd(m, 30) = 1.
+/// @param p the prime a multiple of which is requested
+/// @param n0 lower bound for returned multiple of p
+/// @return 0 when such a multiple does not fit in the return type.
+template <typename U, typename V>
+constexpr auto
+find_first_multiple_above(U p, V n0)
+{
+    const auto p2 = p * p;
+    constexpr auto c_max = std::numeric_limits<decltype(p2)>::max();
+    U dp2;
+    auto c = (p2 >= n0) ? p2 
+                        : (((dp2 = (n0 - p2 + 2 * p - 1)/(2 * p)*(2 * p)),
+                            c_max - p2 < dp2) ? 0 
+                                                 : p2 + dp2);
+    if(!c) {
+        return c;
+    }
+    auto cmod30 = c % 30;
+    switch(cmod30) {
+        case 3: case 5: case 9: case 15: case 21: case 25: case 27: {
+            auto dc = adjt[(p % 30) * 4 / 15][cmod30 >> 1] * p;
+            c = (c_max - c < dc) ? 0 : c + dc;
+            cmod30 = c % 30;
+        }
+        break;
+        default:;
+    }
+    return c;
+}
+
+// Returns the smallest integer coprime to 30 and greater than or equal to @param n0
+template <typename Ret, typename U>
+constexpr
+Ret compute_gte_coprime(U n0)
+{
+    constexpr uint8_t dn[30] = {
+        1, 0, 5, 4, 3, 2, 1, 0, 3, 2, 1, 0, 1, 0, 3,
+        2, 1, 0, 1, 0, 3, 2, 1, 0, 5, 4, 3, 2, 1, 0
+      };
+
+    return Ret{n0} + dn[n0 % 30];
+}
+
+
+/// Returns the largest integer coprime to 30 and < @param n1
+template <typename Ret, typename U>
+constexpr
+Ret compute_lt_coprime(U n1)
+{
+    constexpr uint8_t dn[30] = {
+        1, 2, 1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 1, 2, 1,
+        2, 3, 4, 1, 2, 1, 2, 3, 4, 1, 2, 3, 4, 5, 6
+      };
+ 
+    return Ret{n1} - dn[n1 % 30];
+}
+
+
+/// Returns the index of m relative to the index of m0.
+/// @pre both m and m0 are coptime to 30 and m >= m0
+template <typename U, typename V>
+constexpr std::size_t index_of(U m, V m0)
+{
+    LFP_ASSERT((m >= m0) && (std::gcd(m, 30) == 1) && (std::gcd(m0, 30) == 1));
+
+    auto m_idx = (m % 30) * 4 / 15;
+    auto m0_idx = (m0 % 30) * 4 /15;
+    return (m - m0) / 30 * 8 + ((m_idx >= m0_idx) ? m_idx - m0_idx : 8 + m_idx - m0_idx);
+}
+
+/// Computes the index of the first multiple of prime p in range [n0, ne] relative to the index of n0
+/// as well as the offsets of the following multiples of p relative to firstMultIdx.
+/// @pre p is a prime number > 6, n0 <= n1, gcd(n0, 30) = 1 and gcd(ne, 30) = 1.
+/// @post firstMultIdx is the index of the first multiple of p in [n0, n1[ or noffs if no such multiple,
+/// offsets is filled with the offsets of the next multiples of p relative to firstMultIdx,
+/// @return the number of offsets written to offs
+template <typename U, typename V>
+constexpr std::size_t compute_offsets(std::size_t & firstMultIdx,
+    std::array<std::size_t, 7> & offsets,
+    U p,
+    V n0,
+    V ne
+    )
+{
+    firstMultIdx = noffs;
+    
+    auto c = find_first_multiple_above(p, n0);
+    if(!c) {
+        return 0;
+    }
+    constexpr auto c_max = std::numeric_limits<V>::max();
+    bool isFirstIndex = true;
+    std::size_t offsCount = 0;
+    auto prevDelta = 0;
+    for(auto j = whoffs[(p % 30) * 4 / 15][(c % 30) * 4 / 15];
+        c <= ne;
+        c = ((c_max - c < wheel[(p % 30) * 4 / 15][j] * p)
+         ? ne + 1
+         : c + wheel[(p % 30) * 4 / 15][j] * p), j = (j + 1) % 8) {
+        auto currIdx = index_of(c, n0);
+        if(isFirstIndex) {
+            firstMultIdx = currIdx;
+            isFirstIndex = false;
+            continue;
+        }
+        offsets[offsCount++] = currIdx - firstMultIdx;
+        if(offsCount == offsets.size()) {
+            break;
+        }
+    }
+    return offsCount;
+}
 
 
 /// Applies given mask to value starting at bit value + offs.
@@ -104,6 +283,9 @@ constexpr void mask(U & value, U mask, V offs)
     value &= (offs ? (mask << (std::numeric_limits<U>::digits - offs)) : U{}) | (~U{} >> offs);
 }
 
+
+/// @class allocator
+/// An allocator class used when specific alignment is needed.
 template <typename U, std::size_t Alignment = 64>
 struct allocator
 {
@@ -170,8 +352,15 @@ allocator<U, Alignment>::deallocate(U* ptr, std::size_t /*n*/) noexcept
 
 }
 
+/// Useful when instantiating class bitmask_impl e.g. bitmask_impl<..., use_dictionary_t{true}, ...>
 using use_dictionary_t = bool;
 
+/// @class bitmask_impl
+/// Holds the bitmask to be applied to a bitmap in order to reset the bits corresponding to the multiples of a prime P.
+/// @param U the limb type
+/// @param P the prime number
+/// @param UseDictionary whether to precompute and store the masks for all possible indices
+/// @param Alignment alignment to use for the array holding the mask(s)
 template <typename U, std::size_t P, use_dictionary_t UseDictionary = P < 128, std::size_t Alignment = 64>
 class bitmask_impl
 {
@@ -438,144 +627,47 @@ template <std::size_t prime>
 using bitmask = bitmask_impl<uint64_t, prime>;
 
 
-template <std::size_t Offsets, typename PrimeT>
+template <typename PrimeT>
 class bucket
 {
 public:
-    static_assert(Offsets >= 1, "There must be at least one offset.");
-    struct entry {
-        /// Offsets of the bits to clear corresponding to multiples of prime_
-	/// The offsets to clear are offsets_[0], offsets_[0] + offsets_[1], ..., offsets_[0]+offsets_[7]
-	std::array<std::uint32_t, Offsets> offsets_;
-        PrimeT prime_;
-    };
-    using offsets = decltype(entry::offsets_);
     constexpr bucket() = default;
     constexpr explicit bucket(std::size_t initialCapacity);
     constexpr std::size_t size() const;
-    constexpr auto entries() const;
-    constexpr void clear();
-    constexpr void add(PrimeT prime, std::uint32_t offsetOfPrime) requires(Offsets == 1);
-    constexpr void add(PrimeT prime, std::uint32_t offsetOfPrime,
-               std::span<std::uint32_t, Offsets - 1> nextOffsets) requires(Offsets > 1);
-    constexpr void sort();
+    constexpr void add(PrimeT prime);
+    constexpr std::vector<PrimeT> const & primes() const;
 private:
-    constexpr entry & add_entry(PrimeT prime, std::uint32_t offsetOfPrime);
-    std::vector<entry> entries_;
-    std::size_t size_;
+    std::vector<PrimeT> primes_;
 };
 
-template <std::size_t Offsets, typename PrimeT>
+template <typename PrimeT>
 constexpr
-bucket<Offsets, PrimeT>::bucket(std::size_t initialCapacity)
-    : size_(0)
+bucket<PrimeT>::bucket(std::size_t initialCapacity)
 {
-    entries_.reserve(initialCapacity);
+    primes_.reserve(initialCapacity);
 }
 
-template <std::size_t Offsets, typename PrimeT>
+template <typename PrimeT>
 constexpr std::size_t
-bucket<Offsets, PrimeT>::size() const
+bucket<PrimeT>::size() const
 {
-    return size_;
+    return primes_.size();
 }
 
-template <std::size_t Offsets, typename PrimeT>
+template <typename PrimeT>
 constexpr void
-bucket<Offsets, PrimeT>::clear()
+bucket<PrimeT>::add(PrimeT prime)
 {
-    size_ = 0;
+    primes_.push_back(prime);
 }
 
-template <std::size_t Offsets, typename PrimeT>
-constexpr void
-bucket<Offsets, PrimeT>::add(PrimeT prime, std::uint32_t offsetOfPrime) requires(Offsets == 1)
+template <typename PrimeT>
+constexpr std::vector<PrimeT> const &
+bucket<PrimeT>::primes() const
 {
-    add_entry(prime, offsetOfPrime);
+    return primes_;
 }
 
-template <std::size_t Offsets, typename PrimeT>
-constexpr void
-bucket<Offsets, PrimeT>::add(PrimeT prime, std::uint32_t offsetOfPrime,
-              std::span<std::uint32_t, Offsets - 1> nextOffsets) requires(Offsets > 1)
-{
-    auto & addedEntry = add_entry(prime, offsetOfPrime);
-    std::ranges::copy(nextOffsets, &addedEntry.offsets_[1]);
-}
-
-template <std::size_t Offsets, typename PrimeT>
-constexpr bucket<Offsets, PrimeT>::entry &
-bucket<Offsets, PrimeT>::add_entry(PrimeT prime, std::uint32_t offsetOfPrime)
-{
-    assert(size_ <= entries_.size());
-    if(size_  < entries_.size()) {
-        entries_[size_] = entry{.prime_ = prime};
-    } else {
-        entries_.push_back(entry{.prime_ = prime});
-    }
-    auto & addedEntry = entries_[size_];
-    addedEntry.offsets_[0] = offsetOfPrime;
-    ++size_;
-    return addedEntry;
-}
-
-template <std::size_t Offsets, typename PrimeT>
-constexpr auto
-bucket<Offsets, PrimeT>::entries() const
-{
-    return std::ranges::subrange(std::begin(entries_), std::begin(entries_) + size_);
-}
-
-template <std::size_t Offsets, typename PrimeT>
-constexpr void
-bucket<Offsets, PrimeT>::sort()
-{
-    // Sorting has bad effect on performance deactovated until figuring out what to do
-    // (this condition is always true).
-    if constexpr (Offsets > 0) {
-	return;
-    }
-    std::sort(std::begin(entries_), std::begin(entries_) + size_, [](auto const & x, auto const & y){
-	return x.offsets_[0] < y.offsets_[0];
-      });
-}
-
-
-
-inline constexpr int8_t adjt[8][14] = {
-      {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
-      {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 4, 0, 4, 2},
-      {0, 4, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 2},
-      {0, 2, 2, 0, 4, 0, 0, 2, 0, 0, 2, 0, 4, 2},
-      {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 4, 0, 2, 2},
-      {0, 2, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 4},
-      {0, 2, 4, 0, 4, 0, 0, 2, 0, 0, 2, 0, 2, 2},
-      {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}
-    };
-
-template <typename U, typename V>
-constexpr auto
-find_first_multiple_above(U p, V n0)
-{
-    const auto p2 = p * p;
-    constexpr auto c_max = std::numeric_limits<decltype(p2)>::max();
-    U dp2;
-    auto c = (p2 >= n0) ? p2 : (((dp2 = (n0 - p2 + 2 * p - 1)/(2 * p)*(2 * p)), c_max - p2 < dp2) ? 0 : p2 + dp2);
-    if(!c) {
-        return c;
-    }
-    auto cmod30 = c % 30;
-    switch(cmod30) {
-        case 3: case 5: case 9: case 15: case 21: case 25: case 27: {
-            auto dc = adjt[(p % 30) * 4 / 15][cmod30 >> 1] * p;
-            c = (c_max - c < dc) ? 0 : c + dc;
-            cmod30 = c % 30;
-        }
-        break;
-        default:;
-    }
-    return c;
-}
 
 template <typename T> class PrimesIterator;
 
@@ -590,13 +682,16 @@ public:
     constexpr void assign(uint64_t n0, std::size_t size);
     constexpr std::size_t size() const;
     constexpr std::size_t indexOf(uint64_t val) const;
+    constexpr value_type first_value() const;
+    constexpr value_type last_value() const;
+    constexpr value_type value_at(std::size_t idx) const;
     constexpr void reset(std::size_t index);
     template <std::size_t Prime>
     constexpr void apply(bitmask_impl<uint64_t, Prime> const & mask);
     template <uint8_t... Primes>
     constexpr void apply(bitmask_pack<uint64_t, Primes...> const & maskPack);
-    template <std::size_t NumOffsets, typename PrimeT>
-    constexpr void apply(bucket<NumOffsets, PrimeT> & bkt);
+    template <typename PrimeT>
+    constexpr void apply(bucket<PrimeT> & bkt);
     constexpr uint64_t popcount() const;
     void check() const;
     constexpr uint8_t at(std::size_t index) const;
@@ -605,7 +700,8 @@ public:
 
 private:
     template <typename Int> static constexpr std::size_t indexInResidues(Int);
-    
+    static constexpr value_type value_at_impl(value_type n0, std::size_t offs);
+
     struct mask_application_data {
         std::size_t first_composite_;
         std::size_t first_composite_index_;
@@ -616,14 +712,13 @@ private:
     constexpr mask_application_data compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk) const;
     template <std::size_t Prime>
     constexpr void apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset);
-    template <typename PrimeT>
-    constexpr void apply(bucket<1, PrimeT>::entry const & entry);
-    template <typename PrimeT>
-    constexpr void apply(bucket<8, PrimeT>::entry const & entry);
 
     std::vector<uint64_t, allocator<uint64_t, 64>> vec_;
     std::size_t size_;
+    /// First value
     value_type n0_;
+    /// Last value
+    value_type ne_;
     static constexpr std::array<int,30> d_{1,0,5,4,3,2,1,0,3,2,1,0,1,0,3,2,1,0,1,0,3,2,1,0,5,4,3,2,1,0};
     static constexpr std::array<int,8> residues_{1,7,11,13,17,19,23,29};
     static constexpr std::array<int,8> deltas_{6,4,2,4,2,4,6,2};
@@ -639,6 +734,7 @@ constexpr
 Bitmap::Bitmap()
   : size_(0)
   , n0_(0)
+  , ne_(0)
 {}
 
 constexpr
@@ -647,7 +743,10 @@ Bitmap::Bitmap(uint64_t n0, std::size_t size)
             ~decltype(vec_)::value_type{})
   , size_(size)
   , n0_(n0 + d_[n0 % 30])
+  , ne_(size_ ? value_at_impl(n0_, size_ - 1) : n0_)
 {
+    LFP_ASSERT(size_ >= 1);
+
     if(size % NumLim::digits) {
         vec_.back() &= ~ElemType{} << (NumLim::digits - size % NumLim::digits);
     }
@@ -661,6 +760,7 @@ Bitmap::assign(uint64_t n0, std::size_t size)
             ~decltype(vec_)::value_type{});
     size_ = size;
     n0_ = n0 + d_[n0 % 30];
+    ne_ = size_ ? value_at_impl(n0_, size_ - 1) : n0_;
 
     if(size % NumLim::digits) {
         vec_.back() &= ~ElemType{} << (NumLim::digits - size % NumLim::digits);
@@ -676,11 +776,39 @@ Bitmap::size() const
 
 constexpr
 std::size_t
-Bitmap::indexOf(uint64_t val) const
+Bitmap::indexOf(value_type val) const
 {
-    auto valmod30idx = (val % 30) * 4 / 15;
-    auto n0mod30idx = (n0_ % 30) * 4 /15;
-    return (val - n0_) / 30 * 8 + ((valmod30idx >= n0mod30idx) ? valmod30idx - n0mod30idx : 8 + valmod30idx - n0mod30idx);
+    return index_of(val, n0_);
+}
+
+constexpr
+Bitmap::value_type
+Bitmap::first_value() const
+{
+    return n0_;
+}
+
+constexpr
+Bitmap::value_type
+Bitmap::last_value() const
+{
+    return ne_;
+}
+
+constexpr
+Bitmap::value_type
+Bitmap::value_at(std::size_t idx) const
+{
+    return value_at_impl(n0_, idx);
+}
+
+constexpr
+Bitmap::value_type
+Bitmap::value_at_impl(value_type n0, size_t idx)
+{
+    auto n0res = n0 % 30;
+    auto nxres = residues_[(n0res * 4 / 15 + idx) % 8]; 
+    return n0 + (idx / 8) * 30 + ((nxres >= n0res) ? nxres - n0res : 30 + nxres - n0res );
 }
 
 constexpr
@@ -896,164 +1024,78 @@ void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
     }
 }
 
-template <std::size_t NumOffsets, typename PrimeT>
+
+template <typename PrimeT>
 constexpr void
-Bitmap::apply(bucket<NumOffsets, PrimeT> & bkt)
+Bitmap::apply(bucket<PrimeT> & bkt)
 {
-    static_assert(NumOffsets == 1 || NumOffsets == 8,
-		  "The number of offsets must be 1 or 8, other values not supported yet!");
+    /// @todo: Do we really have to have this static assert? It seems logical because
+    /// base primes ought to be smaller than the ones being hunted...
     static_assert(sizeof(PrimeT) <= sizeof(value_type));
-    auto entries = bkt.entries();
-    if(entries.empty()) {
-        return;
-    }
-    bkt.sort();
-    for(auto const & entry : entries) {
-        apply<PrimeT>(entry);
-    }
-}
 
-
-template <typename PrimeT>
-constexpr void
-Bitmap::apply(bucket<1, PrimeT>::entry const & entry)
-{
-    assert(entry.offsets_[0] < size_);
-    reset(entry.offsets_[0]);
-}
-
-
-template <typename PrimeT>
-constexpr void
-Bitmap::apply(bucket<8, PrimeT>::entry const & entry)
-{
-    std::size_t i = entry.offsets_[0];
-    auto const & offsets = entry.offsets_;
-    auto p = entry.prime_;
-    if(offsets[7]) {
-        for(; i + 8 * p < size_; i += 8 * p) {
+    std::array<std::size_t, 7> offsets;
+    for(auto p : bkt.primes()) {
+        std::size_t start = noffs;
+	if((n0_ == 2039522017) && (p == 17681)) {
+	    if(!std::is_constant_evaluated()) {
+		std::cout << p << ", " << n0_ << std::endl;
+	    }
+	}
+        auto offsCount = compute_offsets(start, offsets, p, n0_, ne_);
+        // This branch could be removed if we are absolutely sure,
+        // positive, that any prime in the bucket has at least one bit to reset.
+        // Need to do some profiling to establish whether removing the test
+        // improves the performances. Wait and see...
+        if(start == noffs) {
+            LFP_ASSERT(false); // should never happen, p does not belong in this bucket
+            continue;
+        }
+        reset(start);
+        // If things are done correctly the following condition is true most of the time
+        // because buckets are for big primes (someone like 509 has nothing to do here,
+        // whereas 12503 is welcome).
+        if(!offsCount) { 
+            continue;
+        }
+        /// @todo: this is duplicated code, have a look at the end of inner_sieve
+        auto i = start;
+        if(offsCount == offsets.size()) {
+            // offsets are periodic, period is 8p
+            // @todo: can there be an overflow when adding 8*p?
+            for(; i + 8 * p < size_; i += 8 * p) {
+                reset(i);
+                reset(i + offsets[0]);
+                reset(i + offsets[1]);
+                reset(i + offsets[2]);
+                reset(i + offsets[3]);
+                reset(i + offsets[4]);
+                reset(i + offsets[5]);
+                reset(i + offsets[6]);
+            }
+        }
+        const auto i0 = i;
+        for(auto j = 0; i < size_; i = i0 + offsets[j], ++j) {
             reset(i);
-            reset(i + offsets[1]);
-            reset(i + offsets[2]);
-            reset(i + offsets[3]);
-            reset(i + offsets[4]);
-            reset(i + offsets[5]);
-            reset(i + offsets[6]);
-            reset(i + offsets[7]);
+            if(j == offsCount) {
+                break;
+            }
         }
-    }
-    const auto i0 = i;
-    for(auto j = 1; i < size_; i = i0 + offsets[j], ++j) {
-        reset(i);
-        if((j == std::size(offsets)) || !offsets[j]) {
-            break;
-        }
+        
     }
 }
 
-inline constexpr uint8_t wheel[8][8] = {
-    {6,4,2,4,2,4,6,2},
-    {4,2,4,2,4,6,2,6},
-    {2,4,2,4,6,2,6,4},
-    {4,2,4,6,2,6,4,2},
-    {2,4,6,2,6,4,2,4},
-    {4,6,2,6,4,2,4,2},
-    {6,2,6,4,2,4,2,4},
-    {2,6,4,2,4,2,4,6}
-};
 
-inline constexpr uint8_t whoffs[8][8] = {
-    {0, 1, 2, 3, 4, 5, 6, 7},
-    {2, 7, 5, 4, 1, 0, 6, 3},
-    {0, 2, 6, 4, 7, 5, 1, 3},
-    {6, 2, 1, 5, 4, 0, 7, 3},
-    {2, 6, 7, 3, 4, 0, 1, 5},
-    {0, 6, 2, 4, 1, 3, 7, 5},
-    {6, 1, 3, 4, 7, 0, 2, 5},
-    {0, 7, 6, 5, 4, 3, 2, 1}    
-};
-
-
-// Returns the smallest integer coprime to 30 and greater than or equal to @param n0
-template <typename Ret, typename U>
-constexpr
-Ret compute_gte_coprime(U n0)
-{
-    constexpr uint8_t dn[30] = {
-        1, 0, 5, 4, 3, 2, 1, 0, 3, 2, 1, 0, 1, 0, 3,
-        2, 1, 0, 1, 0, 3, 2, 1, 0, 5, 4, 3, 2, 1, 0
-      };
-
-    return Ret{n0} + dn[n0 % 30];
-}
-
-
-// Returns the largest ineteger coprime to 30 and less than @param n1
-template <typename Ret, typename U>
-constexpr
-Ret compute_lt_coprime(U n1)
-{
-    constexpr uint8_t dn[30] = {
-        1, 2, 1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 1, 2, 1,
-        2, 3, 4, 1, 2, 1, 2, 3, 4, 1, 2, 3, 4, 5, 6
-      };
-
-    return Ret{n1} - dn[n1 % 30];
-}
-
-template <typename T>
-inline constexpr std::array<T,3> primesBelowSix = {2, 3, 5};
-
-template <typename U, typename V>
-constexpr std::int32_t compute_offsets(std::array<std::uint32_t, 7> & offsets,
-	       Bitmap const & bmp,
-               U p,
-	       V c,
-	       U ne
-	       )
-{
-    std::ranges::fill(offsets, 0);
-    constexpr auto c_max = std::numeric_limits<U>::max();
-    auto count = 0;
-    int32_t firstIndex = -1;
-    auto offsIdx = 0;
-    auto prevDelta = 0;
-    for(auto j = whoffs[(p % 30) * 4 / 15][(c % 30) * 4 / 15];
-        c <= ne;
-	c = ((c_max - c < wheel[(p % 30) * 4 / 15][j] * p)
-		 ? ne + 1 
-		 : c + wheel[(p % 30) * 4 / 15][j] * p), j = (j + 1) % 8) {
-	auto currIdx = bmp.indexOf(c);
-	if(offsIdx == 0) {
-            firstIndex = currIdx;
-	}
-
-	if(offsIdx > 0 && offsIdx <= offsets.size()) {
-            offsets[offsIdx - 1] = currIdx - firstIndex;
-	}
-        ++offsIdx;
-	if(offsIdx > offsets.size()) {
-            break;
-	}
-    }
-    return firstIndex;
-}
-
-template <typename PrimeT>
 struct sieve_data
 {
    Bitmap * bitmap_ = nullptr;
    bool have_to_initialize_bitmap_ = true;
-   /// Bucket used when there is one, exactly one hit in the range being sieved
-   bucket<1, PrimeT> bucket_1_hit_;
-   /// Bucket used when there are more than one hit in the range being sieved
-   bucket<8, PrimeT> bucket_8_hits_;
+   bool have_to_ignore_bucketable_primes_ = false;
 };
 
 
 template <typename T, typename BP, typename U, typename Func>
 constexpr auto 
-inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data<U> & sievdat)
+inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievdat)
 {
     auto const & tinyPrimes = primesBelowSix<T>;
     if((n0 >= n1) || (n0 > std::numeric_limits<U>::max() - 2)) {
@@ -1100,75 +1142,62 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data<U> & sievdat)
         bmp.apply(bitmasks_3);
     }
 
-    auto applyAndClearBuckets = [&]() {
-        bmp.apply(sievdat.bucket_1_hit_);
-        sievdat.bucket_1_hit_.clear();
-        bmp.apply(sievdat.bucket_8_hits_);
-        sievdat.bucket_8_hits_.clear();
-      };
-
-    for(auto p : basePrimes | std::views::drop_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })) {
-	auto p2 = U{p} * p;
-	if(p2 > ne) {
-	    break;
-	}
-	// Early continue if p has no multiple in the current segment. The first condition is to avoid paying the cost of
-	// a modulo when there is a higher probability of p having a multiple in the current segment.
-	// This doesn't worsen things too much in the lower ranges while improving the performances in the higher ranges.
-	if(p > ne - n0) {
-            if(auto n0_mod_p = n0 % p; n0_mod_p && (p - n0_mod_p > ne - n0)) {
-	        continue;
-            }
-	}
-	auto c = find_first_multiple_above(decltype(p2){p}, n0);
-	if(!c) {
-	    continue;
-	}
+    for(auto p : basePrimes
+		    | std::views::drop_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })
+		    | std::views::take_while([&sievdat](auto p){
+			    return !(sievdat.have_to_ignore_bucketable_primes_ && (p >= bucket_sieve_threshold)); })) {
+        auto p2 = U{p} * p;
+        if(p2 > ne) {
+            break;
+        }
+        // Early continue if p has no multiple in the current segment. The first condition is to avoid paying the cost of
+        // a modulo when there is a higher probability of p having a multiple in the current segment.
+        // This doesn't worsen things too much in the lower ranges while improving the performances in the higher ranges.
+        if(p > ne - n0) {
+                if(auto n0_mod_p = n0 % p; n0_mod_p && (p - n0_mod_p > ne - n0)) {
+                continue;
+                }
+        }
+        auto c = find_first_multiple_above(decltype(p2){p}, n0);
+        if(!c) {
+            continue;
+        }
+            
+        std::size_t startOffs{noffs};
+        std::array<std::size_t, 7> offsets;
+        auto offsetsCount = compute_offsets(startOffs, offsets, p, n0, ne);
         
-	std::array<std::uint32_t, 7> offsets;
-	std::int32_t startOffs = compute_offsets<decltype(p2)>(offsets, bmp, p, c, ne);
-
-	if((startOffs < 0) || (startOffs >= bmp.size())) {
-	    // No multiple of p greater or equal to  p^2 in the current segment
-	    continue;
-	}
-	
-	if(p >= bucket_sieve_threshold) {
-            if(!offsets[0]) { // exactly one hit
-                sievdat.bucket_1_hit_.add(p, startOffs);
-	    } else {
-		sievdat.bucket_8_hits_.add(p, startOffs, offsets);
-	    }
-	    if(sievdat.bucket_1_hit_.size() + sievdat.bucket_8_hits_.size() >= max_num_primes_in_bucket) {
-                applyAndClearBuckets();
-	    }
-
-	    continue;
-	}
+        if(startOffs == noffs) {
+            // No multiple of p greater or equal to  p^2 (and coprime to 30) in the current segment
+            continue;
+        }
+        // Unroll the loop when possible i.e. when we have a full period
 	std::size_t i = startOffs;
-	if(offsets[6]) {
-	    for(; i + 8 * p < bmp.size(); i += 8 * p) {
-		bmp.reset(i);
-	        bmp.reset(i + offsets[0]);
-	        bmp.reset(i + offsets[1]);
+        if(offsetsCount == offsets.size()) {
+            for(; i + 8 * p < bmp.size(); i += 8 * p) {
+                bmp.reset(i);
+                bmp.reset(i + offsets[0]);
+                bmp.reset(i + offsets[1]);
                 bmp.reset(i + offsets[2]);
-	        bmp.reset(i + offsets[3]);
-	        bmp.reset(i + offsets[4]);
-	        bmp.reset(i + offsets[5]);
-	        bmp.reset(i + offsets[6]);
-	    }
-	}
-	const auto i0 = i;
-	for(auto j = 0; i < bmp.size(); i = i0 + offsets[j], ++j) {
-	    bmp.reset(i);
-            if((j == offsets.size()) || !offsets[j]) {
-		break;
-	    }
-	}
+                bmp.reset(i + offsets[3]);
+                bmp.reset(i + offsets[4]);
+                bmp.reset(i + offsets[5]);
+                bmp.reset(i + offsets[6]);
+            }
+        }
+        // Deal with the remaining offsets (or the partial period)
+        const auto i0 = i;
+        for(auto j = 0; i < bmp.size(); i = i0 + offsets[j], ++j) {
+            bmp.reset(i);
+            if(j == offsetsCount) {
+                break;
+            }
+        }
     }
 
     return ff(it0, std::end(tinyPrimes), &bmp);
 }
+
 
 template <typename T, typename It = decltype(std::array<T,3>{}.cbegin())>
 constexpr std::vector<T>
@@ -1486,7 +1515,7 @@ template <typename T>
 inline constexpr auto u16primes = []() {
     auto sv = [] {
         Bitmap bmp;
-	sieve_data<uint16_t> sievdat{.bitmap_ = &bmp};
+	sieve_data sievdat{.bitmap_ = &bmp};
         return inner_sieve<uint16_t>(
 		    u8primes<uint16_t>, uint16_t(0), uint16_t(65535),
 		    collectSieveResults<uint16_t>,
@@ -1501,103 +1530,119 @@ inline constexpr auto u16primes = []() {
 template <typename T, typename... Rest>
 inline constexpr bool is_one_of_v = (std::is_same_v<T, Rest> || ...);
 
+template <typename U>
+struct segment
+{
+    U low_;
+    U high_;
+    Bitmap * bitmap_;
+    bucket<U> bucket_;
+};
 
 template <typename T, typename I, typename Fct>
 constexpr auto
 sieve(I k0, I k1, Fct ff)
 {
     static_assert(is_one_of_v<I, int8_t, uint8_t, int16_t, uint16_t,
-		    int32_t, uint32_t, int64_t, uint64_t>);
+            int32_t, uint32_t, int64_t, uint64_t>);
     if constexpr(std::numeric_limits<I>::is_signed) {
-	k0 = (std::max)(I{0}, k0);
-	k1 = (std::max)(I{0}, k1);
+        k0 = (std::max)(I{0}, k0);
+        k1 = (std::max)(I{0}, k1);
     }
     using U = std::make_unsigned_t<I>;
     const U n0 = U(k0), n1 = U(k1);
 
     constexpr U maxn = std::numeric_limits<U>::max();
-    constexpr U innerRangeSize = []() {
-		if constexpr (is_one_of_v<U, uint8_t, uint16_t>) {
-		    return maxn;
-		} else { 
-		    return U{24*1024*1024};
-		} }();
+    constexpr U segmentSize = []() {
+        if constexpr (is_one_of_v<U, uint8_t, uint16_t>) {
+            return maxn;
+        } else { 
+            return U{24*1024*1024};
+        } }();
     std::vector<T> prefix;
     prefix.reserve(3);
-    std::vector<details::Bitmap> bitmaps;
-    bitmaps.reserve((n1 - n0)/innerRangeSize + 1);
-    std::vector<details::sieve_data<U>> sievdats; 
-    sievdats.reserve((n1 - n0)/innerRangeSize + 1);
-
-    for(auto a0 = n0, a1 = std::min(n1, (maxn - innerRangeSize < n0) ? maxn : U(n0 + innerRangeSize));
+    std::vector<Bitmap> bitmaps;
+    bitmaps.reserve((n1 - n0) / segmentSize + 1);
+    std::vector<segment<U>> segments;
+    segments.reserve((n1 - n0) / segmentSize + 1);
+    for(auto a0 = n0, a1 = std::min(n1, (maxn - segmentSize < n0) ? maxn : U(n0 + segmentSize));
         a0 < n1;
-        a0 = (maxn - innerRangeSize < a0) ? maxn : a0 + innerRangeSize,
-	a1 = std::min(n1, maxn - innerRangeSize < a0 ? maxn : U(a0 + innerRangeSize))) {
+        a0 = (maxn - segmentSize < a0) ? maxn : a0 + segmentSize,
+        a1 = std::min(n1, maxn - segmentSize < a0 ? maxn : U(a0 + segmentSize))) {
+	bitmaps.push_back(Bitmap{});
+        segments.emplace_back(segment<U>{
+	    .low_ = a0,
+	    .high_ = a1,
+	    .bitmap_ = &bitmaps.back(),
+            .bucket_ = bucket<U>{initial_bucket_capacity}});
+    }
 
-        const U rangeSize = [n1](){
-	    if constexpr (is_one_of_v<U, uint8_t, uint16_t, uint32_t>) {
-	        return (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
-	    } else {
-		// Established through tests
-		if(n1 >= U{55}<<54) {
-		    return U{16*1024*1024};
-		}
-		return (std::min)(U{16*1024*1024},
-		            U{1} << ((std::bit_width(n1) + 1)/2));
-	    } }();
-         constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
-	 bitmaps.emplace_back(details::Bitmap{});
-	 sievdats.emplace_back(details::sieve_data<U>{
-	     .bitmap_ = &bitmaps.back(),
-	     .bucket_1_hit_ = details::bucket<1, U>{initial_bucket_capacity},
-             .bucket_8_hits_ = details::bucket<8, U>{initial_bucket_capacity}
-           });
-         auto & sievdat = sievdats.back();
+    const U basePrimesRangeSize = [n1](){
+        if constexpr (is_one_of_v<U, uint8_t, uint16_t, uint32_t>) {
+            return (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
+        } else {
+            // Established through tests
+            if(n1 >= U{55}<<54) {
+                return U{16*1024*1024};
+            }
+            return (std::min)(U{16*1024*1024},
+                        U{1} << ((std::bit_width(n1) + 1)/2));
+        } }();
+    constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
 
-         for(U m0 = 0, m1 = rangeSize;
-             (m0 < (U{1} << (std::numeric_limits<U>::digits / 2)) - 1) &&  (m0 * m0 <= a1);
-	     m0 = m1, 
-	       m1 = (maxm - m1 >= rangeSize) ? m1 + rangeSize : maxm) {
-	     details::Bitmap basePrimesBmp;
-	     constexpr auto basePrimes = []() {
-		   if constexpr (std::is_same_v<U, uint8_t> || std::is_same_v<U, uint16_t>) {
-		       return u8primes<U>;
-		   } else {
-		       return u16primes<uint16_t>;
-		   }
-		}();
-	     auto sievdatForBasePrimes = details::sieve_data<U>{ .bitmap_ = &basePrimesBmp,
-	              .bucket_1_hit_ = details::bucket<1, U>{initial_bucket_capacity},
-                      .bucket_8_hits_ = details::bucket<8, U>{initial_bucket_capacity}
-               };
-	     details::inner_sieve<U>(basePrimes, m0, m1,
-	        [](auto, auto, details::Bitmap const *){ }, sievdatForBasePrimes);
-	     // We have to this here otherwise the iterator below may encounter non-primes.
-	     // Hoisting base primes generation would allow to avoid it...
-	     basePrimesBmp.apply(sievdatForBasePrimes.bucket_1_hit_);
-	     sievdatForBasePrimes.bucket_1_hit_.clear();
-	     basePrimesBmp.apply(sievdatForBasePrimes.bucket_8_hits_);
-	     sievdatForBasePrimes.bucket_8_hits_.clear();
-
-	     details::PrimesIterator<U> itP{&basePrimesBmp}, itPe{&basePrimesBmp, true};
-	     auto basePrimesRange = std::ranges::subrange(itP, itPe);
-	     sievdat.have_to_initialize_bitmap_ = m0 == 0;
-	     details::inner_sieve<T>(basePrimesRange, a0, a1,
-	             [&](auto it, auto ite, details::Bitmap const*){
-		         if(it != ite) {
-			     prefix = std::vector<T>{it, ite};
-			 }
-		         return 0;
-		     },  sievdat);
+    for(U m0 = 0, m1 = basePrimesRangeSize;
+        (m0 < (U{1} << (std::numeric_limits<U>::digits / 2)) - 1) &&  (m0 * m0 <= n1);
+        m0 = m1, 
+        m1 = (maxm - m1 >= basePrimesRangeSize) ? m1 + basePrimesRangeSize : maxm) {
+        constexpr auto basePrimes = []() {
+                if constexpr (std::is_same_v<U, uint8_t> || std::is_same_v<U, uint16_t>) {
+                    return u8primes<U>;
+                } else {
+                    return u16primes<uint16_t>;
+                }
+              }();
+        Bitmap basePrimesBmp;
+            details::inner_sieve<U>(basePrimes, m0, m1,
+                [](auto, auto, details::Bitmap const *){ }, sieve_data{
+                  .bitmap_ = &basePrimesBmp,
+                          .have_to_initialize_bitmap_ = true
+              });
+    
+        auto pSquared = U{};
+        details::PrimesIterator<U> itP{&basePrimesBmp}, itPe{&basePrimesBmp, true};
+        for(auto p : std::ranges::subrange(itP, itPe)) {
+            if(p < bucket_sieve_threshold) {
+                continue;
+            }
+            pSquared = p * p;
+            if(pSquared > n1) {
+                break;
+            }
+            auto kp = find_first_multiple_above(p, n0);
+            std::size_t segIdx = kp ? (kp - n0) / segmentSize : -1;
+            if((segIdx != -1) && (segIdx < segments.size()) 
+               && (segIdx != segments.size() - 1 || kp < segments[segIdx].high_)) {
+                segments[segIdx].bucket_.add(p);
+            }
+        }
+        if(pSquared > n1) {
+            break;
         }
     }
 
-    for(std::size_t i = 0; i < bitmaps.size(); ++i) {
-        bitmaps[i].apply(sievdats[i].bucket_1_hit_);
-	sievdats[i].bucket_1_hit_.clear();
-	bitmaps[i].apply(sievdats[i].bucket_8_hits_);
-	sievdats[i].bucket_8_hits_.clear();
+    for(auto & currentSegment : segments) {
+        details::inner_sieve<T>(u16primes<U>, currentSegment.low_, currentSegment.high_,
+            [&](auto it, auto ite, details::Bitmap const*){
+                if(it != ite) {
+                    prefix = std::vector<T>{it, ite};
+                }
+                return 0;
+            },  sieve_data{ .bitmap_ = currentSegment.bitmap_,
+                            .have_to_initialize_bitmap_ = true,
+			    .have_to_ignore_bucketable_primes_ = true });
+        currentSegment.bitmap_->apply(currentSegment.bucket_);
     }
+
     return ff(prefix, bitmaps);
 }
 
