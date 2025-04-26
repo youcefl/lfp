@@ -85,12 +85,17 @@ private:
 namespace details {
 
 /// Constants
-inline constexpr std::size_t bucket_sieve_threshold = 16384;
+inline constexpr std::size_t bucket_sieve_threshold = 8192;
 inline constexpr std::size_t max_num_primes_in_bucket = 4096;
 inline constexpr std::size_t initial_bucket_capacity = 4096;
 
 /// Value meaning no offset i.e. the requested value is not present in the sequence
 inline constexpr std::size_t noffs = (std::numeric_limits<std::size_t>::max)();
+
+/// True if and only if T is one of the types listed after it
+template <typename T, typename... Rest>
+inline constexpr bool is_one_of_v = sizeof...(Rest) && ((std::is_same_v<T, Rest> || ...));
+
 
 /// All the primes below 2^8 in ascending order
 template <typename T>
@@ -138,7 +143,7 @@ inline constexpr uint8_t whoffs[8][8] = {
 /// More precisely, let p be a prime, we start to cross out the multiples of p
 /// at p^2 but since we are using a mod 30 wheel we need those multiples to be
 /// coprime to 30. What this table does is, once a multiple c of p of the form
-/// p^2 + 2kp is found, it adds to c what needs to be added to make it coprime
+/// p^2 + 2k is found, it adds to c what needs to be added to make it coprime
 /// to 30.
 inline constexpr int8_t adjt[8][14] = {
     {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
@@ -161,8 +166,8 @@ constexpr auto
 find_first_multiple_above(U p, V n0)
 {
     const auto p2 = p * p;
-    constexpr auto c_max = std::numeric_limits<decltype(p2)>::max();
-    U dp2;
+    constexpr auto c_max = std::numeric_limits<V>::max();
+    V dp2;
     auto c = (p2 >= n0) ? p2 
                         : (((dp2 = (n0 - p2 + 2 * p - 1)/(2 * p)*(2 * p)),
                             c_max - p2 < dp2) ? 0 
@@ -243,15 +248,27 @@ constexpr std::size_t compute_offsets(std::size_t & firstMultIdx,
     if(!c) {
         return 0;
     }
-    constexpr auto c_max = std::numeric_limits<V>::max();
+#if 0
+    if(c < n0) { //@todo: remove. Used for debugging
+        c = find_first_multiple_above(p, n0);
+	if(!std::is_constant_evaluated()) {
+	    std::cout << "Bad multiple, got " << c << " where a value > " << n0 << " was requested." << std::endl;
+	}
+    }
+#endif
+    constexpr auto c_max = std::numeric_limits<U>::max();
     bool isFirstIndex = true;
     std::size_t offsCount = 0;
     auto prevDelta = 0;
+//    auto c0 = c; // @todo: remove. Used only by the assertion below
     for(auto j = whoffs[(p % 30) * 4 / 15][(c % 30) * 4 / 15];
         c <= ne;
         c = ((c_max - c < wheel[(p % 30) * 4 / 15][j] * p)
          ? ne + 1
          : c + wheel[(p % 30) * 4 / 15][j] * p), j = (j + 1) % 8) {
+//	if(c < c0) {
+//	   LFP_ASSERT(false);
+//	}
         auto currIdx = index_of(c, n0);
         if(isFirstIndex) {
             firstMultIdx = currIdx;
@@ -636,6 +653,24 @@ public:
     constexpr std::size_t size() const;
     constexpr void add(PrimeT prime);
     constexpr std::vector<PrimeT> const & primes() const;
+    /// Moves primes in this bucket to the next bucket they belong to based
+    /// on their multiples.
+    /// This is the in-famous "kick the can" operation, once a prime p has had
+    /// its multiples in a segment crossed out, we push it forward to the next
+    /// segment where a multiple of p resides.
+    /// @param buckets a span refering to the buckets which will receive the
+    /// primes in this bucket.
+    /// @param n0 the lower bound of the segment corresponding to the first bucket in buckets
+    /// @param n1 the upper bound of the segment corresponding to the last bucket in buckets
+    /// @param segmentSize the size of a segment (the last segment can be smaller).
+    template <typename U>
+    constexpr void push_primes_forward(
+        std::span<bucket<PrimeT>> buckets,
+	U n0,
+	U n1,
+	std::size_t segmentSize
+      );
+
 private:
     std::vector<PrimeT> primes_;
 };
@@ -666,6 +701,29 @@ constexpr std::vector<PrimeT> const &
 bucket<PrimeT>::primes() const
 {
     return primes_;
+}
+
+template <typename PrimeT>
+template <typename U>
+constexpr void
+bucket<PrimeT>::push_primes_forward(
+        std::span<bucket<PrimeT>> buckets,
+	U n0,
+	U n1,
+	std::size_t segmentSize
+      )
+{
+   if(buckets.empty()) {
+       return;
+   }
+   for(auto p : primes_) {
+       auto kp = find_first_multiple_above(p, n0);
+       if(kp && (kp < n1)) {
+           buckets[(kp - n0) / segmentSize].add(p);
+       }
+   }
+   decltype(primes_) emptyVec;
+   std::swap(primes_, emptyVec);
 }
 
 
@@ -1033,14 +1091,63 @@ Bitmap::apply(bucket<PrimeT> & bkt)
     /// base primes ought to be smaller than the ones being hunted...
     static_assert(sizeof(PrimeT) <= sizeof(value_type));
 
+    std::vector<std::size_t> allOffsets;
+    allOffsets.reserve(1024*1024);
+
     std::array<std::size_t, 7> offsets;
     for(auto p : bkt.primes()) {
         std::size_t start = noffs;
-	if((n0_ == 2039522017) && (p == 17681)) {
-	    if(!std::is_constant_evaluated()) {
-		std::cout << p << ", " << n0_ << std::endl;
-	    }
-	}
+        auto offsCount = compute_offsets(start, offsets, p, n0_, ne_);
+        // This branch could be removed if we are absolutely sure,
+        // positive, that any prime in the bucket has at least one bit to reset.
+        // Need to do some profiling to establish whether removing the test
+        // improves the performances. Wait and see...
+        if(start == noffs) {
+            LFP_ASSERT(false); // should never happen, p does not belong in this bucket
+            continue;
+        }
+        allOffsets.push_back(start);
+        // If things are done correctly the following condition is true most of the time
+        // because buckets are for big primes (someone like 509 has nothing to do here,
+        // whereas 12503 is welcome).
+        if(!offsCount) { 
+            continue;
+        }
+        /// @todo: this is duplicated code, have a look at the end of inner_sieve
+        auto i = start;
+        if(offsCount == offsets.size()) {
+            // offsets are periodic, period is 8p
+            // @todo: can there be an overflow when adding 8*p?
+            for(; i + 8 * p < size_; i += 8 * p) {
+                allOffsets.push_back(i);
+                allOffsets.push_back(i + offsets[0]);
+                allOffsets.push_back(i + offsets[1]);
+                allOffsets.push_back(i + offsets[2]);
+                allOffsets.push_back(i + offsets[3]);
+                allOffsets.push_back(i + offsets[4]);
+                allOffsets.push_back(i + offsets[5]);
+                allOffsets.push_back(i + offsets[6]);
+            }
+        }
+        const auto i0 = i;
+        for(auto j = 0; i < size_; i = i0 + offsets[j], ++j) {
+            allOffsets.push_back(i);
+            if(j == offsCount) {
+                break;
+            }
+        }
+    }
+
+    for(auto offsPtr = allOffsets.data(), offsPtrEnd = offsPtr + allOffsets.size();
+        offsPtr != offsPtrEnd;
+	++offsPtr) {
+	reset(*offsPtr);
+    }
+
+#if 0
+    std::array<std::size_t, 7> offsets;
+    for(auto p : bkt.primes()) {
+        std::size_t start = noffs;
         auto offsCount = compute_offsets(start, offsets, p, n0_, ne_);
         // This branch could be removed if we are absolutely sure,
         // positive, that any prime in the bucket has at least one bit to reset.
@@ -1082,6 +1189,7 @@ Bitmap::apply(bucket<PrimeT> & bkt)
         }
         
     }
+#endif
 }
 
 
@@ -1130,7 +1238,10 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
     // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmap
     constexpr unsigned int lastSmallPrime = 103;
     constexpr unsigned int smallPrimesThreshold = lastSmallPrime + 1;
-    if(std::ranges::distance(basePrimes | std::views::take_while([](auto p) { return p < smallPrimesThreshold; }))) {
+    if(std::ranges::distance(basePrimes 
+			    | std::views::drop_while([](auto p) { return p < 7; }) 
+			    | std::views::take_while([](auto p) { return p < smallPrimesThreshold; })
+			    )) {
         bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
                  7, 11, 13, 17, 19, 23, 29, 31> bitmasks_1;
         bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
@@ -1527,16 +1638,13 @@ inline constexpr auto u16primes = []() {
   }();
 
 
-template <typename T, typename... Rest>
-inline constexpr bool is_one_of_v = (std::is_same_v<T, Rest> || ...);
-
 template <typename U>
 struct segment
 {
     U low_;
     U high_;
     Bitmap * bitmap_;
-    bucket<U> bucket_;
+    bucket<U> * bucket_;
 };
 
 template <typename T, typename I, typename Fct>
@@ -1561,21 +1669,26 @@ sieve(I k0, I k1, Fct ff)
         } }();
     std::vector<T> prefix;
     prefix.reserve(3);
+    auto const estimatedNumSegments = (n1 - n0) / segmentSize + 1;
     std::vector<Bitmap> bitmaps;
-    bitmaps.reserve((n1 - n0) / segmentSize + 1);
+    bitmaps.reserve(estimatedNumSegments);
+    std::vector<bucket<U>> buckets;
+    buckets.reserve(estimatedNumSegments);
     std::vector<segment<U>> segments;
-    segments.reserve((n1 - n0) / segmentSize + 1);
+    segments.reserve(estimatedNumSegments);
     for(auto a0 = n0, a1 = std::min(n1, (maxn - segmentSize < n0) ? maxn : U(n0 + segmentSize));
         a0 < n1;
         a0 = (maxn - segmentSize < a0) ? maxn : a0 + segmentSize,
         a1 = std::min(n1, maxn - segmentSize < a0 ? maxn : U(a0 + segmentSize))) {
 	bitmaps.push_back(Bitmap{});
+	buckets.push_back(bucket<U>{initial_bucket_capacity});
         segments.emplace_back(segment<U>{
 	    .low_ = a0,
 	    .high_ = a1,
 	    .bitmap_ = &bitmaps.back(),
-            .bucket_ = bucket<U>{initial_bucket_capacity}});
+            .bucket_ = &buckets.back()});
     }
+    auto const numSegments = segments.size();
 
     const U basePrimesRangeSize = [n1](){
         if constexpr (is_one_of_v<U, uint8_t, uint16_t, uint32_t>) {
@@ -1618,11 +1731,10 @@ sieve(I k0, I k1, Fct ff)
             if(pSquared > n1) {
                 break;
             }
-            auto kp = find_first_multiple_above(p, n0);
-            std::size_t segIdx = kp ? (kp - n0) / segmentSize : -1;
-            if((segIdx != -1) && (segIdx < segments.size()) 
-               && (segIdx != segments.size() - 1 || kp < segments[segIdx].high_)) {
-                segments[segIdx].bucket_.add(p);
+
+	    auto kp = find_first_multiple_above(p, n0);
+            if(kp && (kp < n1)) {
+                buckets[(kp - n0) / segmentSize].add(p);
             }
         }
         if(pSquared > n1) {
@@ -1630,6 +1742,7 @@ sieve(I k0, I k1, Fct ff)
         }
     }
 
+    int i = 0;
     for(auto & currentSegment : segments) {
         details::inner_sieve<T>(u16primes<U>, currentSegment.low_, currentSegment.high_,
             [&](auto it, auto ite, details::Bitmap const*){
@@ -1640,7 +1753,15 @@ sieve(I k0, I k1, Fct ff)
             },  sieve_data{ .bitmap_ = currentSegment.bitmap_,
                             .have_to_initialize_bitmap_ = true,
 			    .have_to_ignore_bucketable_primes_ = true });
-        currentSegment.bitmap_->apply(currentSegment.bucket_);
+        currentSegment.bitmap_->apply(*currentSegment.bucket_);
+	auto const nextSegLow = ((i + 1) < numSegments) ? segments[i + 1].low_ : U{};
+	currentSegment.bucket_->push_primes_forward(
+			std::span{buckets}.subspan(i + 1),
+			nextSegLow,
+			segments.back().high_,
+			segmentSize
+			);
+	++i;
     }
 
     return ff(prefix, bitmaps);
