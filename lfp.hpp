@@ -85,7 +85,7 @@ private:
 namespace details {
 
 /// Constants
-inline constexpr std::size_t bucket_sieve_threshold = 8192;
+inline constexpr std::size_t bucket_sieve_threshold = 65535;
 inline constexpr std::size_t max_num_primes_in_bucket = 4096;
 inline constexpr std::size_t initial_bucket_capacity = 4096;
 
@@ -648,11 +648,13 @@ template <typename PrimeT>
 class bucket
 {
 public:
-    constexpr bucket() = default;
-    constexpr explicit bucket(std::size_t initialCapacity);
+    constexpr bucket();
+    constexpr bucket(std::vector<std::uint32_t> & scratchOffsets, std::size_t initialCapacity);
     constexpr std::size_t size() const;
     constexpr void add(PrimeT prime);
     constexpr std::vector<PrimeT> const & primes() const;
+    template <typename V>
+    constexpr std::vector<std::uint32_t> const & compute_offsets(V n0, V ne, std::size_t bmpSize);
     /// Moves primes in this bucket to the next bucket they belong to based
     /// on their multiples.
     /// This is the in-famous "kick the can" operation, once a prime p has had
@@ -673,11 +675,21 @@ public:
 
 private:
     std::vector<PrimeT> primes_;
+    std::vector<std::uint32_t> * scratch_offsets_;
+    std::vector<std::uint32_t> default_scratch_offsets_;
 };
 
 template <typename PrimeT>
 constexpr
-bucket<PrimeT>::bucket(std::size_t initialCapacity)
+bucket<PrimeT>::bucket()
+{
+    scratch_offsets_ = &default_scratch_offsets_;
+}
+
+template <typename PrimeT>
+constexpr
+bucket<PrimeT>::bucket(std::vector<std::uint32_t> & scratchOffsets, std::size_t initialCapacity)
+    : scratch_offsets_(&scratchOffsets)
 {
     primes_.reserve(initialCapacity);
 }
@@ -704,6 +716,60 @@ bucket<PrimeT>::primes() const
 }
 
 template <typename PrimeT>
+template <typename V>
+constexpr std::vector<std::uint32_t> const &
+bucket<PrimeT>::compute_offsets(V n0, V ne, std::size_t bmpSize)
+{
+    auto & scratchOffsets = *scratch_offsets_;
+    scratchOffsets.clear();
+
+    std::array<std::size_t, 7> offsets;
+    for(auto p : primes_) {
+        std::size_t start = noffs;
+        auto offsCount = details::compute_offsets(start, offsets, p, n0, ne);
+        // This branch could be removed if we are absolutely sure,
+        // positive, that any prime in the bucket has at least one bit to reset.
+        // Need to do some profiling to establish whether removing the test
+        // improves the performances. Wait and see...
+        if(start == noffs) {
+            LFP_ASSERT(false); // should never happen, p does not belong in this bucket
+            continue;
+        }
+        scratchOffsets.push_back(start);
+        // If things are done correctly the following condition is true most of the time
+        // because buckets are for big primes (someone like 509 has nothing to do here,
+        // whereas 12503 is welcome).
+        if(!offsCount) { 
+            continue;
+        }
+        /// @todo: this is duplicated code, have a look at the end of inner_sieve
+        auto i = start;
+        if(offsCount == offsets.size()) {
+            // offsets are periodic, period is 8p
+            // @todo: can there be an overflow when adding 8*p?
+            for(; i + 8 * p < bmpSize; i += 8 * p) {
+                scratchOffsets.push_back(i);
+                scratchOffsets.push_back(i + offsets[0]);
+                scratchOffsets.push_back(i + offsets[1]);
+                scratchOffsets.push_back(i + offsets[2]);
+                scratchOffsets.push_back(i + offsets[3]);
+                scratchOffsets.push_back(i + offsets[4]);
+                scratchOffsets.push_back(i + offsets[5]);
+                scratchOffsets.push_back(i + offsets[6]);
+            }
+        }
+        const auto i0 = i;
+        for(auto j = 0; i < bmpSize; i = i0 + offsets[j], ++j) {
+            scratchOffsets.push_back(i);
+            if(j == offsCount) {
+                break;
+            }
+        }
+    }
+    return scratchOffsets;
+}
+
+template <typename PrimeT>
 template <typename U>
 constexpr void
 bucket<PrimeT>::push_primes_forward(
@@ -722,8 +788,7 @@ bucket<PrimeT>::push_primes_forward(
            buckets[(kp - n0) / segmentSize].add(p);
        }
    }
-   decltype(primes_) emptyVec;
-   std::swap(primes_, emptyVec);
+   primes_.clear();
 }
 
 
@@ -1091,105 +1156,13 @@ Bitmap::apply(bucket<PrimeT> & bkt)
     /// base primes ought to be smaller than the ones being hunted...
     static_assert(sizeof(PrimeT) <= sizeof(value_type));
 
-    std::vector<std::size_t> allOffsets;
-    allOffsets.reserve(1024*1024);
+    auto const & offsets = bkt.compute_offsets(n0_, ne_, size_);
 
-    std::array<std::size_t, 7> offsets;
-    for(auto p : bkt.primes()) {
-        std::size_t start = noffs;
-        auto offsCount = compute_offsets(start, offsets, p, n0_, ne_);
-        // This branch could be removed if we are absolutely sure,
-        // positive, that any prime in the bucket has at least one bit to reset.
-        // Need to do some profiling to establish whether removing the test
-        // improves the performances. Wait and see...
-        if(start == noffs) {
-            LFP_ASSERT(false); // should never happen, p does not belong in this bucket
-            continue;
-        }
-        allOffsets.push_back(start);
-        // If things are done correctly the following condition is true most of the time
-        // because buckets are for big primes (someone like 509 has nothing to do here,
-        // whereas 12503 is welcome).
-        if(!offsCount) { 
-            continue;
-        }
-        /// @todo: this is duplicated code, have a look at the end of inner_sieve
-        auto i = start;
-        if(offsCount == offsets.size()) {
-            // offsets are periodic, period is 8p
-            // @todo: can there be an overflow when adding 8*p?
-            for(; i + 8 * p < size_; i += 8 * p) {
-                allOffsets.push_back(i);
-                allOffsets.push_back(i + offsets[0]);
-                allOffsets.push_back(i + offsets[1]);
-                allOffsets.push_back(i + offsets[2]);
-                allOffsets.push_back(i + offsets[3]);
-                allOffsets.push_back(i + offsets[4]);
-                allOffsets.push_back(i + offsets[5]);
-                allOffsets.push_back(i + offsets[6]);
-            }
-        }
-        const auto i0 = i;
-        for(auto j = 0; i < size_; i = i0 + offsets[j], ++j) {
-            allOffsets.push_back(i);
-            if(j == offsCount) {
-                break;
-            }
-        }
-    }
-
-    for(auto offsPtr = allOffsets.data(), offsPtrEnd = offsPtr + allOffsets.size();
+    for(auto offsPtr = offsets.data(), offsPtrEnd = offsPtr + offsets.size();
         offsPtr != offsPtrEnd;
 	++offsPtr) {
 	reset(*offsPtr);
     }
-
-#if 0
-    std::array<std::size_t, 7> offsets;
-    for(auto p : bkt.primes()) {
-        std::size_t start = noffs;
-        auto offsCount = compute_offsets(start, offsets, p, n0_, ne_);
-        // This branch could be removed if we are absolutely sure,
-        // positive, that any prime in the bucket has at least one bit to reset.
-        // Need to do some profiling to establish whether removing the test
-        // improves the performances. Wait and see...
-        if(start == noffs) {
-            LFP_ASSERT(false); // should never happen, p does not belong in this bucket
-            continue;
-        }
-        reset(start);
-        // If things are done correctly the following condition is true most of the time
-        // because buckets are for big primes (someone like 509 has nothing to do here,
-        // whereas 12503 is welcome).
-        if(!offsCount) { 
-            continue;
-        }
-        /// @todo: this is duplicated code, have a look at the end of inner_sieve
-        auto i = start;
-        if(offsCount == offsets.size()) {
-            // offsets are periodic, period is 8p
-            // @todo: can there be an overflow when adding 8*p?
-            for(; i + 8 * p < size_; i += 8 * p) {
-                reset(i);
-                reset(i + offsets[0]);
-                reset(i + offsets[1]);
-                reset(i + offsets[2]);
-                reset(i + offsets[3]);
-                reset(i + offsets[4]);
-                reset(i + offsets[5]);
-                reset(i + offsets[6]);
-            }
-        }
-        const auto i0 = i;
-        for(auto j = 0; i < size_; i = i0 + offsets[j], ++j) {
-            reset(i);
-            if(j == offsCount) {
-                break;
-            }
-        }
-        
-    }
-#endif
 }
 
 
@@ -1676,12 +1649,14 @@ sieve(I k0, I k1, Fct ff)
     buckets.reserve(estimatedNumSegments);
     std::vector<segment<U>> segments;
     segments.reserve(estimatedNumSegments);
+    std::vector<std::uint32_t> scratchOffsets;
+    scratchOffsets.reserve(262144 * 10);
     for(auto a0 = n0, a1 = std::min(n1, (maxn - segmentSize < n0) ? maxn : U(n0 + segmentSize));
         a0 < n1;
         a0 = (maxn - segmentSize < a0) ? maxn : a0 + segmentSize,
         a1 = std::min(n1, maxn - segmentSize < a0 ? maxn : U(a0 + segmentSize))) {
 	bitmaps.push_back(Bitmap{});
-	buckets.push_back(bucket<U>{initial_bucket_capacity});
+	buckets.push_back(bucket<U>{scratchOffsets, initial_bucket_capacity});
         segments.emplace_back(segment<U>{
 	    .low_ = a0,
 	    .high_ = a1,
