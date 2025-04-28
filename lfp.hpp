@@ -7,7 +7,6 @@
 /// @file lfp.hpp
 /// @brief Header defining the lfp library
 ///
-///
 #pragma once
 
 #include <cstdint>
@@ -143,7 +142,7 @@ inline constexpr uint8_t whoffs[8][8] = {
 /// More precisely, let p be a prime, we start to cross out the multiples of p
 /// at p^2 but since we are using a mod 30 wheel we need those multiples to be
 /// coprime to 30. What this table does is, once a multiple c of p of the form
-/// p^2 + 2k is found, it adds to c what needs to be added to make it coprime
+/// p^2 + 2kp is found, it adds to c what needs to be added to make it coprime
 /// to 30.
 inline constexpr int8_t adjt[8][14] = {
     {0, 4, 2, 0, 2, 0, 0, 2, 0, 0, 2, 0, 4, 2},
@@ -156,16 +155,48 @@ inline constexpr int8_t adjt[8][14] = {
     {0, 2, 4, 0, 2, 0, 0, 2, 0, 0, 2, 0, 2, 4}
 };
 
-/// Computes the smallest multiple m of p such that m >= max(p^2, n0) and
-/// gcd(m, 30) = 1.
-/// @param p the prime a multiple of which is requested
-/// @param n0 lower bound for returned multiple of p
-/// @return 0 when such a multiple does not fit in the return type.
-template <typename U, typename V>
-constexpr auto
-find_first_multiple_above(U p, V n0)
+template <typename UInt>
+constexpr auto cp30res_to_idx(UInt coprimeTo30Residue)
 {
-    const auto p2 = p * p;
+    return (coprimeTo30Residue * 17) >> 6;
+}
+
+
+struct ComputeSquareOfP {};
+struct NoUpperBoundCond {};
+struct ResiduesNotNeeded {};
+
+template <typename U, typename V, typename  SquareOfPComputer = ComputeSquareOfP, typename UpperBoundCond = NoUpperBoundCond, typename ResiduesReceiver = ResiduesNotNeeded>
+struct first_multiple_finder
+{
+    constexpr auto operator()(U p, V n0);
+//    constexpr first_multiple_finder(SquareOfPComputer sqrOfPComputer, UpperBoundCond upperBoundCond, ResiduesReceiver residuesReceiver);
+
+    SquareOfPComputer sqr_of_p_comp_;
+    UpperBoundCond upper_bound_cond_;
+    ResiduesReceiver residues_receiver_;
+};
+
+/*
+template <typename U, typename V, typename SquareOfPComputer, typename UpperBoundCond, typename ResiduesReceiver>
+constexpr
+first_multiple_finder<U, V, SquareOfPComputer, UpperBoundCond, ResiduesReceiver>::first_multiple_finder(SquareOfPComputer sqrOfPComputer, UpperBoundCond upperBoundCond, ResiduesReceiver residuesReceiver)
+    : sqr_of_p_comp_(sqrOfPComputer)
+    , upper_bound_cond_(upperBoundCond)
+    , residues_receiver_(residuesReceiver)
+{}
+*/
+template <typename U, typename V, typename SquareOfPComputer, typename UpperBoundCond, typename ResiduesReceiver>
+constexpr auto
+first_multiple_finder<U, V, SquareOfPComputer, UpperBoundCond, ResiduesReceiver>::operator()(U p, V n0)
+{
+    auto const p2 = [&](){
+	if constexpr (std::is_same_v<SquareOfPComputer, ComputeSquareOfP>) {
+	   return p * p; 
+        } else {
+	   return sqr_of_p_comp_();
+        }
+      }();
     constexpr auto c_max = std::numeric_limits<V>::max();
     V dp2;
     auto c = (p2 >= n0) ? p2 
@@ -173,19 +204,72 @@ find_first_multiple_above(U p, V n0)
                             c_max - p2 < dp2) ? 0 
                                                  : p2 + dp2);
     if(!c) {
-        return c;
+	return decltype(c){};
     }
+    if constexpr(!std::is_same_v<UpperBoundCond, NoUpperBoundCond>) {
+       if(!upper_bound_cond_(c)) {
+	   return decltype(c){};
+       }
+    }
+    constexpr auto callerNeedsResidues = !std::is_same_v<ResiduesReceiver, ResiduesNotNeeded>;
     auto cmod30 = c % 30;
     switch(cmod30) {
         case 3: case 5: case 9: case 15: case 21: case 25: case 27: {
             auto dc = adjt[(p % 30) * 4 / 15][cmod30 >> 1] * p;
             c = (c_max - c < dc) ? 0 : c + dc;
-            cmod30 = c % 30;
+	    if constexpr(callerNeedsResidues) {
+            	cmod30 = c % 30;
+	    }
         }
         break;
         default:;
     }
+    if constexpr(callerNeedsResidues) {
+	residues_receiver_(p % 30, cmod30);
+    }
     return c;
+}
+
+template <typename U, typename V>
+constexpr auto find_first_multiple_impl(U p, V n0)
+{
+    return first_multiple_finder<U, V>{}(p, n0);
+}
+
+template <typename U, typename V, typename SquareOfPComputer, typename UpperBoundCond, typename ResiduesReceiver>
+constexpr auto find_first_multiple_impl(U p, V n0, SquareOfPComputer sqrOfPComp, UpperBoundCond upperBoundCond, ResiduesReceiver residuesReceiver)
+{
+    auto finder = first_multiple_finder<U, V, SquareOfPComputer, UpperBoundCond, ResiduesReceiver>{
+	  sqrOfPComp,
+	  upperBoundCond,
+	  residuesReceiver
+      };
+    return finder(p, n0);
+}
+
+template <typename U, typename V>
+constexpr auto
+find_first_multiple_ae_b(U p, V n0, V n1, U pSquared, uint8_t & pmod30, uint8_t & cmod30)
+{
+   return find_first_multiple_impl(p, n0,
+	      [pSquared](){ return pSquared; },
+	      [n1](auto c){ return c < n1; },
+		   [&](uint8_t pm30, uint8_t cm30){
+		       pmod30 = pm30;
+		       cmod30 = cm30;
+		   });
+}
+
+/// Computes the smallest multiple m of p such that m >= max(p^2, n0) and
+/// gcd(m, 30) = 1.
+/// @param p the prime a multiple of which is requested
+/// @param n0 lower bound for returned multiple of p
+/// @return 0 when such a multiple does not fit in the return type.
+template <typename U, typename V>
+constexpr auto
+find_first_multiple_ae(U p, V n0)
+{
+    return find_first_multiple_impl(p, n0);
 }
 
 // Returns the smallest integer coprime to 30 and greater than or equal to @param n0
@@ -223,10 +307,26 @@ constexpr std::size_t index_of(U m, V m0)
 {
     LFP_ASSERT((m >= m0) && (std::gcd(m, 30) == 1) && (std::gcd(m0, 30) == 1));
 
-    auto m_idx = (m % 30) * 4 / 15;
-    auto m0_idx = (m0 % 30) * 4 /15;
+    auto m_idx = cp30res_to_idx(m % 30);
+    auto m0_idx = cp30res_to_dx(m0 % 30);
     return (m - m0) / 30 * 8 + ((m_idx >= m0_idx) ? m_idx - m0_idx : 8 + m_idx - m0_idx);
 }
+
+/// Returns the value at offset offs relative to the offset of n0 i.e. the value v such that offs == index_of(v, n0)
+/// @pre n0 is coprime to 30
+template <typename V>
+constexpr V value_at(V n0, std::size_t offs)
+{
+    LFP_ASSERT(std::gcd(n0, 30) == 1);
+
+    return n0 + (offs / 8) * 30 + (offs % 8);
+    /*            offs%8
+		  0
+    n0%30 -> 1    0*/
+    
+}
+
+
 
 /// Computes the index of the first multiple of prime p in range [n0, ne] relative to the index of n0
 /// as well as the offsets of the following multiples of p relative to firstMultIdx.
@@ -239,18 +339,15 @@ constexpr std::size_t compute_offsets(std::size_t & firstMultIdx,
     std::array<std::size_t, 7> & offsets,
     U p,
     V n0,
-    V ne
+    V ne,
+    V c
     )
 {
     firstMultIdx = noffs;
     
-    auto c = find_first_multiple_above(p, n0);
-    if(!c) {
-        return 0;
-    }
 #if 0
     if(c < n0) { //@todo: remove. Used for debugging
-        c = find_first_multiple_above(p, n0);
+        c = find_first_multiple_ae(p, n0);
 	if(!std::is_constant_evaluated()) {
 	    std::cout << "Bad multiple, got " << c << " where a value > " << n0 << " was requested." << std::endl;
 	}
@@ -259,22 +356,53 @@ constexpr std::size_t compute_offsets(std::size_t & firstMultIdx,
     constexpr auto c_max = std::numeric_limits<U>::max();
     bool isFirstIndex = true;
     std::size_t offsCount = 0;
-    auto prevDelta = 0;
-//    auto c0 = c; // @todo: remove. Used only by the assertion below
-    for(auto j = whoffs[(p % 30) * 4 / 15][(c % 30) * 4 / 15];
+    auto const iw = cp30res_to_idx(p % 30);
+    auto const jw = cp30res_to_idx(c % 30);
+
+    for(auto j = whoffs[iw][jw];
         c <= ne;
-        c = ((c_max - c < wheel[(p % 30) * 4 / 15][j] * p)
+        c = ((c_max - c < wheel[iw][j] * p)
          ? ne + 1
-         : c + wheel[(p % 30) * 4 / 15][j] * p), j = (j + 1) % 8) {
-//	if(c < c0) {
-//	   LFP_ASSERT(false);
-//	}
+         : c + wheel[iw][j] * p), j = (j + 1) % 8) {
         auto currIdx = index_of(c, n0);
         if(isFirstIndex) {
             firstMultIdx = currIdx;
             isFirstIndex = false;
             continue;
         }
+        offsets[offsCount++] = currIdx - firstMultIdx;
+        if(offsCount == offsets.size()) {
+            break;
+        }
+    }
+    return offsCount;
+}
+
+template <typename U, typename V>
+constexpr std::size_t compute_remaining_offsets(std::size_t firstMultIdx,
+    std::arry<std::size_t, 7> offsets,
+    U p,
+    V n0,
+    V ne,
+    V c,
+    uint8_t whpos
+    )
+{
+    constexpr auto c_max = std::numeric_limits<U>::max();
+    bool isFirstIndex = true;
+    std::size_t offsCount = 0;
+    auto const iw = whpos >> 3;
+    auto const jw = whpos & 7;
+    for(auto j = whoffs[iw][jw];
+        c <= ne;
+        c = ((c_max - c < wheel[iw][j] * p)
+          ? ne + 1
+          : c + wheel[iw][j] * p), j = (j + 1) % 8) {
+        if(isFirstIndex) {
+            isFirstIndex = false;
+            continue;
+        }
+        auto currIdx = index_of(c, n0);
         offsets[offsCount++] = currIdx - firstMultIdx;
         if(offsCount == offsets.size()) {
             break;
@@ -449,7 +577,7 @@ template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t
 constexpr auto
 bitmask_impl<U, P, UseDictionary, Alignment>::offset(std::size_t c) const
 {
-    return offs_[(c % 30) * 4 / 15];
+    return offs_[cp30res_to_idx(c % 30)];
 }
 
 
@@ -648,13 +776,21 @@ template <typename PrimeT>
 class bucket
 {
 public:
-    constexpr bucket();
-    constexpr bucket(std::vector<std::uint32_t> & scratchOffsets, std::size_t initialCapacity);
+    // Should be sufficient because if not, it means someone created 500MiB bitmap
+    // i.e. a bitmap representing a range of length 2^32/8*30 = 16'106'127'360 which
+    // is way too much.
+    using offset_type = std::uint32_t;
+    using offsets_type = std::vector<offset_type>;
+
+  //  constexpr bucket();
+    constexpr bucket(offsets_type & scratchOffsets, std::size_t initialCapacity);
     constexpr std::size_t size() const;
-    constexpr void add(PrimeT prime);
+    constexpr void add(PrimeT prime, offset_type cOffs, uint8_t whpos);
+    /// Returns the primes in this bucket
     constexpr std::vector<PrimeT> const & primes() const;
     template <typename V>
-    constexpr std::vector<std::uint32_t> const & compute_offsets(V n0, V ne, std::size_t bmpSize);
+    constexpr offsets_type const & compute_offsets(V n0, V ne, std::size_t bmpSize);
+#if 0
     /// Moves primes in this bucket to the next bucket they belong to based
     /// on their multiples.
     /// This is the in-famous "kick the can" operation, once a prime p has had
@@ -672,24 +808,18 @@ public:
 	U n1,
 	std::size_t segmentSize
       );
-
+#endif
 private:
     std::vector<PrimeT> primes_;
-    std::vector<std::uint32_t> * scratch_offsets_;
-    std::vector<std::uint32_t> default_scratch_offsets_;
+    offsets_type first_multiples_offsets_;
+    std::vector<uint8_t> whpos_;
+    offsets_type & scratch_offsets_;
 };
 
 template <typename PrimeT>
 constexpr
-bucket<PrimeT>::bucket()
-{
-    scratch_offsets_ = &default_scratch_offsets_;
-}
-
-template <typename PrimeT>
-constexpr
 bucket<PrimeT>::bucket(std::vector<std::uint32_t> & scratchOffsets, std::size_t initialCapacity)
-    : scratch_offsets_(&scratchOffsets)
+    : scratch_offsets_(scratchOffsets)
 {
     primes_.reserve(initialCapacity);
 }
@@ -703,9 +833,11 @@ bucket<PrimeT>::size() const
 
 template <typename PrimeT>
 constexpr void
-bucket<PrimeT>::add(PrimeT prime)
+bucket<PrimeT>::add(PrimeT prime, offset_type cOffs, uint8_t whpos)
 {
     primes_.push_back(prime);
+    first_multiples_offsets_.push_back(cOffs);
+    whpos_.push_back(whpos);
 }
 
 template <typename PrimeT>
@@ -715,60 +847,57 @@ bucket<PrimeT>::primes() const
     return primes_;
 }
 
+
 template <typename PrimeT>
 template <typename V>
 constexpr std::vector<std::uint32_t> const &
 bucket<PrimeT>::compute_offsets(V n0, V ne, std::size_t bmpSize)
 {
-    auto & scratchOffsets = *scratch_offsets_;
-    scratchOffsets.clear();
+    scratch_offsets_.clear();
 
-    std::array<std::size_t, 7> offsets;
-    for(auto p : primes_) {
-        std::size_t start = noffs;
-        auto offsCount = details::compute_offsets(start, offsets, p, n0, ne);
-        // This branch could be removed if we are absolutely sure,
-        // positive, that any prime in the bucket has at least one bit to reset.
-        // Need to do some profiling to establish whether removing the test
-        // improves the performances. Wait and see...
-        if(start == noffs) {
-            LFP_ASSERT(false); // should never happen, p does not belong in this bucket
-            continue;
-        }
-        scratchOffsets.push_back(start);
-        // If things are done correctly the following condition is true most of the time
+    for(std::size_t i{}, imax{primes_.size()}; i < imax; ++i) {
+	auto p = primes_[i];
+	auto start = first_multiples_offsets_[i];
+	scratch_offsets_.push_back(start);
+	auto whpos = whpos_[i];
+	auto c = value_at(n0, start);
+        std::array<std::size_t, 7> offsets;
+	auto offsCount = compute_remaining_offsets(start, offsets, p, n0, ne, c, whpos);
+         // If things are done correctly the following condition is true most of the time
         // because buckets are for big primes (someone like 509 has nothing to do here,
         // whereas 12503 is welcome).
-        if(!offsCount) { 
-            continue;
-        }
+        if(!offsCount) {
+	    continue;
+	}	
         /// @todo: this is duplicated code, have a look at the end of inner_sieve
         auto i = start;
         if(offsCount == offsets.size()) {
             // offsets are periodic, period is 8p
             // @todo: can there be an overflow when adding 8*p?
             for(; i + 8 * p < bmpSize; i += 8 * p) {
-                scratchOffsets.push_back(i);
-                scratchOffsets.push_back(i + offsets[0]);
-                scratchOffsets.push_back(i + offsets[1]);
-                scratchOffsets.push_back(i + offsets[2]);
-                scratchOffsets.push_back(i + offsets[3]);
-                scratchOffsets.push_back(i + offsets[4]);
-                scratchOffsets.push_back(i + offsets[5]);
-                scratchOffsets.push_back(i + offsets[6]);
+                scratch_offsets_.push_back(i);
+                scratch_offsets_.push_back(i + offsets[0]);
+                scratch_offsets_.push_back(i + offsets[1]);
+                scratch_offsets_.push_back(i + offsets[2]);
+                scratch_offsets_.push_back(i + offsets[3]);
+                scratch_offsets_.push_back(i + offsets[4]);
+                scratch_offsets_.push_back(i + offsets[5]);
+                scratch_offsets_.push_back(i + offsets[6]);
             }
         }
         const auto i0 = i;
         for(auto j = 0; i < bmpSize; i = i0 + offsets[j], ++j) {
-            scratchOffsets.push_back(i);
+            scratch_offsets_.push_back(i);
             if(j == offsCount) {
                 break;
             }
         }
     }
-    return scratchOffsets;
+
+    return scratch_offsets_;
 }
 
+#if 0
 template <typename PrimeT>
 template <typename U>
 constexpr void
@@ -783,14 +912,14 @@ bucket<PrimeT>::push_primes_forward(
        return;
    }
    for(auto p : primes_) {
-       auto kp = find_first_multiple_above(p, n0);
+       auto kp = find_first_multiple_ae(p, n0);
        if(kp && (kp < n1)) {
            buckets[(kp - n0) / segmentSize].add(p);
        }
    }
    primes_.clear();
 }
-
+#endif
 
 template <typename T> class PrimesIterator;
 
@@ -1022,7 +1151,7 @@ Bitmap::compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk)
     mask_application_data mappData{0, nopos_, nopos_, nopos_};
 
     const auto p = bmk.prime();
-    auto c = find_first_multiple_above(p, n0_);
+    auto c = find_first_multiple_ae(p, n0_);
     if(!c) {
         return mappData;
     }
@@ -1242,14 +1371,14 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
                 continue;
                 }
         }
-        auto c = find_first_multiple_above(decltype(p2){p}, n0);
+        U c = find_first_multiple_ae(decltype(p2){p}, n0);
         if(!c) {
             continue;
         }
             
         std::size_t startOffs{noffs};
         std::array<std::size_t, 7> offsets;
-        auto offsetsCount = compute_offsets(startOffs, offsets, p, n0, ne);
+        auto offsetsCount = compute_offsets(startOffs, offsets, p, n0, ne, c);
         
         if(startOffs == noffs) {
             // No multiple of p greater or equal to  p^2 (and coprime to 30) in the current segment
@@ -1638,7 +1767,7 @@ sieve(I k0, I k1, Fct ff)
         if constexpr (is_one_of_v<U, uint8_t, uint16_t>) {
             return maxn;
         } else { 
-            return U{24*1024*1024};
+            return U{32*1024*1024};
         } }();
     std::vector<T> prefix;
     prefix.reserve(3);
@@ -1698,26 +1827,33 @@ sieve(I k0, I k1, Fct ff)
     
         auto pSquared = U{};
         details::PrimesIterator<U> itP{&basePrimesBmp}, itPe{&basePrimesBmp, true};
-        for(auto p : std::ranges::subrange(itP, itPe)) {
-            if(p < bucket_sieve_threshold) {
-                continue;
-            }
-            pSquared = p * p;
-            if(pSquared > n1) {
-                break;
-            }
+        for(auto p : std::ranges::subrange(itP, itPe) 
+		     | std::views::drop_while([](auto q){ return q < bucket_sieve_threshold; })) {
+	    pSquared = p * p;
 
-	    auto kp = find_first_multiple_above(p, n0);
-            if(kp && (kp < n1)) {
-                buckets[(kp - n0) / segmentSize].add(p);
-            }
+	    auto highest = segments.back().high_;
+	    for(std::size_t i{}; i < numSegments;) {
+		uint8_t pmod30{}, cmod30{};
+		auto kp = find_first_multiple_ae_b(p, segments[i].low_, highest, pSquared, pmod30, cmod30);
+		if(!kp) {
+		    break;
+		}
+		i = (kp - n0) / segmentSize;
+		auto & segment = segments[i];
+		auto indexOfMultipleInBitmap = index_of(compute_gte_coprime<decltype(n0)>(segment.low_), kp);
+		segment.bucket_->add(p, indexOfMultipleInBitmap, (cp30res_to_idx(pmod30) << 3) | cp30res_to_idx(cmod30));
+		if(kp + 2 * p >= highest) { // @todo: check for overflow!!!
+		    break;
+		}
+		++i;
+	    }
         }
-        if(pSquared > n1) {
+        if(pSquared >= n1) {
             break;
         }
     }
 
-    int i = 0;
+    //int i = 0;
     for(auto & currentSegment : segments) {
         details::inner_sieve<T>(u16primes<U>, currentSegment.low_, currentSegment.high_,
             [&](auto it, auto ite, details::Bitmap const*){
@@ -1729,14 +1865,14 @@ sieve(I k0, I k1, Fct ff)
                             .have_to_initialize_bitmap_ = true,
 			    .have_to_ignore_bucketable_primes_ = true });
         currentSegment.bitmap_->apply(*currentSegment.bucket_);
-	auto const nextSegLow = ((i + 1) < numSegments) ? segments[i + 1].low_ : U{};
-	currentSegment.bucket_->push_primes_forward(
+	//auto const nextSegLow = ((i + 1) < numSegments) ? segments[i + 1].low_ : U{};
+	/*currentSegment.bucket_->push_primes_forward(
 			std::span{buckets}.subspan(i + 1),
 			nextSegLow,
 			segments.back().high_,
 			segmentSize
-			);
-	++i;
+			);*/
+	//++i;
     }
 
     return ff(prefix, bitmaps);
