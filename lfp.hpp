@@ -298,6 +298,16 @@ Ret compute_lt_coprime(U n1)
 }
 
 
+template <typename U, typename V>
+constexpr std::size_t index_of(U m, uint8_t mmod30Idx,  V m0)
+{
+    LFP_ASSERT((m >= m0) && (std::gcd(m, 30) == 1)
+	      && (mmod30Idx == cp30res_to_idx(m % 30))  && (std::gcd(m0, 30) == 1));
+
+    auto m0_idx = cp30res_to_idx(m0 % 30);
+    return (m - m0) / 30 * 8 + ((mmod30Idx >= m0_idx) ? mmod30Idx - m0_idx : 8 + mmod30Idx - m0_idx);
+}
+
 /// Returns the index of m relative to the index of m0.
 /// @pre both m and m0 are coptime to 30 and m >= m0
 template <typename U, typename V>
@@ -379,7 +389,7 @@ constexpr std::size_t compute_offsets(std::size_t & firstMultIdx,
 
 template <typename U, typename V>
 constexpr std::size_t compute_remaining_offsets(std::size_t firstMultIdx,
-    std::array<std::size_t, 7> offsets,
+    std::array<std::size_t, 7> & offsets,
     U p,
     V n0,
     V ne,
@@ -852,7 +862,7 @@ bucket<PrimeT>::compute_offsets(V n0, V ne, std::size_t bmpSize)
 	LFP_ASSERT(start < bmpSize);
 	auto whpos = whpos_[k];
 	auto c = value_at(n0, start);
-        std::array<std::size_t, 7> offsets{};
+        std::array<std::size_t, 7> offsets;
 	auto offsCount = compute_remaining_offsets(start, offsets, p, n0, ne, c, whpos);
          // If things are done correctly the following condition is true most of the time
         // because buckets are for big primes (someone like 509 has nothing to do here,
@@ -1812,8 +1822,8 @@ sieve(I k0, I k1, Fct ff)
 
 	    auto highest = segments.back().high_;
 	    for(std::size_t i{}; i < numSegments;) {
-		uint8_t pmod30{}, cmod30{};
-		auto kp = find_first_multiple_ae_b(p, segments[i].low_, highest, pSquared, pmod30, cmod30);
+		uint8_t pmod30{}, kpmod30{};
+		auto kp = find_first_multiple_ae_b(p, segments[i].low_, highest, pSquared, pmod30, kpmod30);
 		if(!kp) {
 		    break;
 		}
@@ -1821,8 +1831,9 @@ sieve(I k0, I k1, Fct ff)
 		i = (kp - n0) / segmentSize;
 		LFP_ASSERT(i < numSegments);
 		auto & segment = segments[i];
-		auto indexOfMultipleInBitmap = index_of(kp, compute_gte_coprime<decltype(n0)>(segment.low_));
-		segment.bucket_->add(p, indexOfMultipleInBitmap, (cp30res_to_idx(pmod30) << 3) | cp30res_to_idx(cmod30));
+		auto kpmod30Idx = cp30res_to_idx(kpmod30);
+		auto indexOfMultipleInBitmap = index_of(kp, kpmod30Idx, compute_gte_coprime<decltype(n0)>(segment.low_));
+		segment.bucket_->add(p, indexOfMultipleInBitmap, (cp30res_to_idx(pmod30) << 3) | kpmod30Idx);
 		if(kp + 2 * p >= highest) { // @todo: check for overflow!!!
 		    break;
 		}
