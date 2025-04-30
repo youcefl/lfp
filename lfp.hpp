@@ -85,8 +85,7 @@ namespace details {
 
 /// Constants
 inline constexpr std::size_t bucket_sieve_threshold = 65535;
-inline constexpr std::size_t max_num_primes_in_bucket = 4096;
-inline constexpr std::size_t initial_bucket_capacity = 4096;
+inline constexpr std::size_t initial_bucket_capacity = 32768;
 
 /// Value meaning no offset i.e. the requested value is not present in the sequence
 inline constexpr std::size_t noffs = (std::numeric_limits<std::size_t>::max)();
@@ -789,7 +788,7 @@ public:
     // i.e. a bitmap representing a range of length 2^32/8*30 = 16'106'127'360 which
     // is way too much.
     using offset_type = std::uint32_t;
-    using offsets_type = std::vector<offset_type>;
+    using offsets_type = std::vector<offset_type, allocator<offset_type, 64>>;
 
     constexpr bucket(offsets_type & scratchOffsets, std::size_t initialCapacity);
     constexpr std::size_t size() const;
@@ -808,7 +807,7 @@ private:
 
 template <typename PrimeT>
 constexpr
-bucket<PrimeT>::bucket(std::vector<std::uint32_t> & scratchOffsets, std::size_t initialCapacity)
+bucket<PrimeT>::bucket(offsets_type & scratchOffsets, std::size_t initialCapacity)
     : scratch_offsets_(scratchOffsets)
 {
     primes_.reserve(initialCapacity);
@@ -851,7 +850,7 @@ bucket<PrimeT>::primes() const
 
 template <typename PrimeT>
 template <typename V>
-constexpr std::vector<std::uint32_t> const &
+constexpr bucket<PrimeT>::offsets_type const &
 bucket<PrimeT>::compute_offsets(V n0, V ne, std::size_t bmpSize)
 {
     scratch_offsets_.clear();
@@ -1767,7 +1766,7 @@ sieve(I k0, I k1, Fct ff)
     buckets.reserve(estimatedNumSegments);
     std::vector<segment<U>> segments;
     segments.reserve(estimatedNumSegments);
-    std::vector<std::uint32_t> scratchOffsets;
+    std::vector<std::uint32_t, allocator<std::uint32_t, 64>> scratchOffsets;
     scratchOffsets.reserve(262144 * 10);
     for(auto a0 = n0, a1 = std::min(n1, (maxn - segmentSize < n0) ? maxn : U(n0 + segmentSize));
         a0 < n1;
