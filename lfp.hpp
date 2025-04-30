@@ -35,6 +35,16 @@
 # endif
 #endif
 
+#ifdef LFP_ACTIVATE_LOG
+#  define LFP_LOG(msg) \
+    do { \
+        if(!std::is_constant_evaluated()) { \
+           ::lfp::details::log() << msg << "\n"; \
+       } \
+      } while(0)
+#else
+#  define LFP_LOG(msg) ((void)0)
+#endif
 
 namespace lfp {
 
@@ -83,6 +93,67 @@ private:
 
 namespace details {
 
+class log_impl;
+
+/// Returns the unique logger
+inline log_impl & log();
+
+/// Logging class
+class log_impl
+{
+    struct appender;
+public:
+    log_impl(std::ostream & stream);
+    template <typename Arg>
+    appender & operator <<(Arg&& arg);
+
+private:
+    class appender {
+    public:
+	template <typename Arg>
+	appender & operator <<(Arg&& arg);
+    private:
+	appender() = default;
+	log_impl * parent_;
+	friend class log_impl;
+    };
+    std::ostream & stream_;
+    appender appender_;
+};
+
+inline
+log_impl::log_impl(std::ostream & stream)
+    : stream_(stream)
+{
+    appender_.parent_ = this;
+}
+
+template <typename Arg>
+inline
+log_impl::appender & log_impl::operator<<(Arg&& arg)
+{
+    auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::high_resolution_clock::now().time_since_epoch()
+       ).count();
+    stream_ << ts << " | " << std::forward<Arg>(arg);
+    return appender_;
+}
+
+template <typename Arg>
+inline
+log_impl::appender & log_impl::appender::operator <<(Arg&& arg)
+{
+    parent_->stream_ << std::forward<Arg>(arg);
+    return *this;
+}
+
+inline log_impl & log()
+{
+    static log_impl inst{std::cout};
+    return inst;
+}
+
+
 /// Constants
 inline constexpr std::size_t bucket_sieve_threshold = 65535;
 inline constexpr std::size_t initial_bucket_capacity = 32768;
@@ -93,6 +164,13 @@ inline constexpr std::size_t noffs = (std::numeric_limits<std::size_t>::max)();
 /// True if and only if T is one of the types listed after it
 template <typename T, typename... Rest>
 inline constexpr bool is_one_of_v = sizeof...(Rest) && ((std::is_same_v<T, Rest> || ...));
+
+/// Returns the address of an object as an integer value
+template <typename T>
+inline auto obj_addr(T const* ptr)
+{
+    return reinterpret_cast<std::uintptr_t>(ptr);
+}	
 
 /// Residues modulo 30 that are coprime to 30
 template <typename T>
@@ -792,6 +870,7 @@ public:
 
     constexpr bucket(offsets_type & scratchOffsets, std::size_t initialCapacity);
     constexpr std::size_t size() const;
+    constexpr bool is_empty() const;
     constexpr void add(PrimeT prime, offset_type cOffs, uint8_t whpos);
     /// Returns the primes in this bucket
     constexpr std::vector<PrimeT> const & primes() const;
@@ -832,6 +911,13 @@ bucket<PrimeT>::size() const
 }
 
 template <typename PrimeT>
+constexpr bool
+bucket<PrimeT>::is_empty() const
+{
+    return primes_.empty();
+}
+
+template <typename PrimeT>
 constexpr void
 bucket<PrimeT>::add(PrimeT prime, offset_type cOffs, uint8_t whpos)
 {
@@ -853,6 +939,8 @@ template <typename V>
 constexpr bucket<PrimeT>::offsets_type const &
 bucket<PrimeT>::compute_offsets(V n0, V ne, std::size_t bmpSize)
 {
+    LFP_LOG("bucket " << reinterpret_cast<intptr_t>(this) << ": computing offsets, number of primes: " << primes_.size());
+
     scratch_offsets_.clear();
 
     for(std::size_t k{}, kmax{primes_.size()}; k < kmax; ++k) {
@@ -894,6 +982,8 @@ bucket<PrimeT>::compute_offsets(V n0, V ne, std::size_t bmpSize)
             }
         }
     }
+
+    LFP_LOG("bucket " << reinterpret_cast<intptr_t>(this) << ": found " << scratch_offsets_.size() << " offsets");
 
     return scratch_offsets_;
 }
@@ -982,6 +1072,7 @@ Bitmap::Bitmap(uint64_t n0, std::size_t size)
     if(size % NumLim::digits) {
         vec_.back() &= ~ElemType{} << (NumLim::digits - size % NumLim::digits);
     }
+    LFP_LOG("constructed bitmap " << obj_addr(this) << ", {n0 = " << n0_ << ", ne = " << ne_ << ", size = " << size_ << "}");
 }
 
 constexpr
@@ -997,6 +1088,7 @@ Bitmap::assign(uint64_t n0, std::size_t size)
     if(size % NumLim::digits) {
         vec_.back() &= ~ElemType{} << (NumLim::digits - size % NumLim::digits);
     }
+    LFP_LOG("assigned bitmap " << obj_addr(this) << ", {n0 = " << n0_ << ", ne = " << ne_ << ", size = " << size_ << "}");
 }
 
 constexpr
@@ -1151,8 +1243,12 @@ template <std::size_t Prime>
 constexpr
 void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk)
 {
+    LFP_LOG("bitmap " << obj_addr(this) << ": about to apply precomputed bitmask (prime = " << bmk.prime() << ")");
+
     auto mappData = compute_mask_application_data(bmk);
     apply(bmk, mappData, size());
+ 
+    LFP_LOG("bitmap " << obj_addr(this) << ": applied precomputed bitmask (prime = " << bmk.prime() << ")");
 }
 
 
@@ -1209,6 +1305,17 @@ template <uint8_t... Primes>
 constexpr
 void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
 {
+    LFP_LOG("bitmap " << obj_addr(this) << ": about to apply pack of bitmasks (primes: " << maskPack.primes_as_string()  << ")");
+#ifdef LFP_ACTIVATE_LOG
+    template <typename Func>
+    struct call_before_return {
+	call_before_return(Func f) : f_(f) {}
+	~call_before_return() {
+	    f_();
+        }
+    } callBeforeRet;
+    LFP_LOG("bitmap " << obj_addr(bitmap_) << ": applied pack of bitmasks (primes: " << maskPack.primes_as_string() << ")");
+#endif    
     constexpr auto masksCount = maskPack.size();
     // We apply each mask individualy until we reach an offset where they can be applied
     // all together.
@@ -1273,13 +1380,23 @@ Bitmap::apply(bucket<PrimeT> & bkt)
     /// base primes ought to be smaller than the ones being hunted...
     static_assert(sizeof(PrimeT) <= sizeof(value_type));
 
+    if(bkt.is_empty()) {
+	return;
+    }
+
+    LFP_LOG("bitmap " << obj_addr(this) << ": about to apply bucket " << obj_addr(&bkt));
+
     auto const & offsets = bkt.compute_offsets(n0_, ne_, size_);
+
+    LFP_LOG("bitmap " << obj_addr(this) << ": reseting " << offsets.size() << " bit(s)");
 
     for(auto offsPtr = offsets.data(), offsPtrEnd = offsPtr + offsets.size();
         offsPtr != offsPtrEnd;
 	++offsPtr) {
 	reset(*offsPtr);
     }
+
+    LFP_LOG("bitmap " << obj_addr(this) << ": bucket " << obj_addr(&bkt) << " applied");
 }
 
 
