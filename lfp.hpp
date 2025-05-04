@@ -27,24 +27,6 @@
 #include <cassert>
 #include <span>
 
-#ifdef NDEBUG
-# define LFP_ASSERT(...) ((void)0);
-#else
-# ifndef LFP_ASSERT
-#   define LFP_ASSERT(...) assert(__VA_ARGS__)
-# endif
-#endif
-
-#ifdef LFP_ACTIVATE_LOG
-#  define LFP_LOG(msg) \
-    do { \
-        if(!std::is_constant_evaluated()) { \
-           ::lfp::details::log() << msg << "\n"; \
-       } \
-      } while(0)
-#else
-#  define LFP_LOG(msg) ((void)0)
-#endif
 
 namespace lfp {
 
@@ -90,7 +72,54 @@ private:
     static unsigned int defaultCount();
 };
 
+} // namespace lfp
 
+
+
+#ifdef NDEBUG
+# define LFP_ASSERT(...) ((void)0);
+#else
+# ifndef LFP_ASSERT
+#   define LFP_ASSERT(...) assert(__VA_ARGS__)
+# endif
+#endif
+
+#define LFP_CONCAT_IMPL(x, y) x##y
+#define LFP_CONCAT(x, y) LFP_CONCAT_IMPL(x, y)
+
+#ifdef LFP_ACTIVATE_LOG
+#  define LFP_LOG(msg) \
+    do { \
+        if(!std::is_constant_evaluated()) { \
+           ::lfp::details::log() << msg << "\n";\
+       } \
+      } while(0)
+
+#  define LFP_LOG_S(msg, msgAtEos) \
+	LFP_LOG(msg);\
+	auto LFP_CONCAT(blockStartTime, __LINE__) = !std::is_constant_evaluated()\
+               ? std::chrono::high_resolution_clock::now()\
+	       : decltype(std::chrono::high_resolution_clock::now()){}; \
+	auto LFP_CONCAT(logAtEob, __LINE__) = [&](){\
+	    if(!std::is_constant_evaluated()) {\
+                return std::variant<details::log_impl::log_at_eos, int>{\
+		    details::make_log_at_eos([&](){\
+                        auto duration = std::chrono::duration<double>{\
+			        std::chrono::high_resolution_clock::now()\
+				  - LFP_CONCAT(blockStartTime, __LINE__)};\
+			::lfp::details::log() << msgAtEos << " (duration: " << duration << ")\n";\
+		    })\
+		};\
+	    }\
+	    return std::variant<details::log_impl::log_at_eos, int>{0};\
+          }();
+#else
+#  define LFP_LOG(msg) ((void)0)
+#  define LFP_LOG_S(msg, msgAtEob) ((void)0)
+#endif
+
+
+namespace lfp { 
 namespace details {
 
 class log_impl;
@@ -106,6 +135,17 @@ public:
     log_impl(std::ostream & stream);
     template <typename Arg>
     appender & operator <<(Arg&& arg);
+    struct log_at_eos {
+	log_at_eos(log_at_eos const&) = delete;
+	log_at_eos(log_at_eos&& other) noexcept
+	{
+	    func_ = std::move(other.func_);
+	    other.func_ = [](){};
+	}
+	log_at_eos(std::function<void()> func);
+	~log_at_eos();
+	std::function<void()> func_;
+    };
 
 private:
     class appender {
@@ -120,6 +160,7 @@ private:
     std::ostream & stream_;
     appender appender_;
 };
+
 
 inline
 log_impl::log_impl(std::ostream & stream)
@@ -145,6 +186,21 @@ log_impl::appender & log_impl::appender::operator <<(Arg&& arg)
 {
     parent_->stream_ << std::forward<Arg>(arg);
     return *this;
+}
+
+log_impl::log_at_eos::log_at_eos(std::function<void()> func)
+    : func_(func)
+{}
+
+inline log_impl::log_at_eos::~log_at_eos()
+{
+    func_();
+}
+
+template <typename Func>
+auto make_log_at_eos(Func func)
+{
+    return log_impl::log_at_eos{func};
 }
 
 inline log_impl & log()
@@ -758,6 +814,8 @@ public:
     static_assert((is_prime(SmallPrimes) && ...), "Expecting prime numbers below 255!");
 
     constexpr bitmask_pack() = default;
+    /// Returns a comma separated list of the SmallPrimes as a string
+    static constexpr std::string_view primes_as_string();
     /// Returns the number of bitmask objects in this pack
     static constexpr auto size();
     /// Returns a tuple containing all bitmask objects in this pack
@@ -765,7 +823,7 @@ public:
     /// Gets the bitmask object at index I
     template <std::size_t I>
     constexpr auto const & get() const;
-    /// Returns the largest prime in the SmallPrimes
+    /// Returns the largest prime in SmallPrimes
     static constexpr std::uint8_t max_prime();
     /// Returns the combination of the masks at the given offsets
     template <std::size_t N>
@@ -773,6 +831,8 @@ public:
 
 private:
     using primes_sequence = std::integer_sequence<std::size_t, SmallPrimes...>;
+
+    static constexpr auto primes_as_string(primes_sequence primesSeq);
 
     template <std::size_t P, std::size_t... I>
     static constexpr bool is_in_sequence(std::integer_sequence<std::size_t, I...>);
@@ -790,6 +850,11 @@ private:
 
     /// The masks
     decltype(make_masks_tuple()) masks_;
+    // 3 digits per prime, 2 characters for the separator ", ", and the final '\0':
+    // 3 * sizeof...(SmallPrimes) + 2 * (sizeof...(SmallPrimes) - 1) + 1
+    static constexpr std::array<char, 5 * sizeof...(SmallPrimes) - 1> str_primes_ = primes_as_string(primes_sequence{});
+    static constexpr std::string_view str_primes_view_{str_primes_.cbegin(), std::find(str_primes_.cbegin(), str_primes_.cend(), '\0')};
+
 };
 
 
@@ -797,6 +862,36 @@ template <typename U, uint8_t... SmallPrimes>
 constexpr auto bitmask_pack<U, SmallPrimes...>::size()
 {
     return sizeof...(SmallPrimes);
+}
+
+template <typename U, uint8_t... SmallPrimes>
+constexpr std::string_view bitmask_pack<U, SmallPrimes...>::primes_as_string()
+{
+//    return	std::string_view{str_primes_.cbegin(), std::find(str_primes_.cbegin(), str_primes_.cend(), '\0')};
+    return str_primes_view_;
+}
+
+template <typename U, uint8_t... SmallPrimes>
+constexpr auto bitmask_pack<U, SmallPrimes...>::primes_as_string(primes_sequence)
+{
+    // all of this because std::to_string is not constexpr in C++20
+    std::array<char, str_primes_.size()> ret{};
+    int i = 0;
+    char * sep = nullptr;
+    for(auto p : std::to_array<uint8_t>({SmallPrimes...})) {
+	if(i) {
+	    ret[i++] = ',';
+	    ret[i++] = ' ';
+	}
+	char strp[8] = {};
+	int j = 7;
+	for(;p ; p /= 10) {
+	    strp[j--] = '0' + (p % 10);
+	}
+	std::copy(strp + j + 1, strp + sizeof(strp), &ret[i]);
+	i += sizeof(strp) - j - 1;
+    }
+    return ret;
 }
 
 template <typename U, uint8_t... SmallPrimes>
@@ -939,7 +1034,10 @@ template <typename V>
 constexpr bucket<PrimeT>::offsets_type const &
 bucket<PrimeT>::compute_offsets(V n0, V ne, std::size_t bmpSize)
 {
-    LFP_LOG("bucket " << reinterpret_cast<intptr_t>(this) << ": computing offsets, number of primes: " << primes_.size());
+    LFP_LOG("bucket " << reinterpret_cast<intptr_t>(this)
+		    << ": computing offsets, number of primes: " << primes_.size()
+		    << ", first prime: " << (!primes_.empty() ? primes_.front() : 0)
+		    << ", last prime: " << (!primes_.empty() ? primes_.back() : 0));
 
     scratch_offsets_.clear();
 
@@ -1072,13 +1170,16 @@ Bitmap::Bitmap(uint64_t n0, std::size_t size)
     if(size % NumLim::digits) {
         vec_.back() &= ~ElemType{} << (NumLim::digits - size % NumLim::digits);
     }
-    LFP_LOG("constructed bitmap " << obj_addr(this) << ", {n0 = " << n0_ << ", ne = " << ne_ << ", size = " << size_ << "}");
+
+    LFP_LOG("constructed bitmap " << obj_addr(this) << ", [" << n0_ << ", " << ne_ << "], size = " << size_);
 }
 
 constexpr
 void
 Bitmap::assign(uint64_t n0, std::size_t size)
 {
+    LFP_LOG("assigning bitmap " << obj_addr(this));
+
     vec_.assign((size + NumLim::digits - 1)/NumLim::digits,
             ~decltype(vec_)::value_type{});
     size_ = size;
@@ -1088,7 +1189,8 @@ Bitmap::assign(uint64_t n0, std::size_t size)
     if(size % NumLim::digits) {
         vec_.back() &= ~ElemType{} << (NumLim::digits - size % NumLim::digits);
     }
-    LFP_LOG("assigned bitmap " << obj_addr(this) << ", {n0 = " << n0_ << ", ne = " << ne_ << ", size = " << size_ << "}");
+
+    LFP_LOG("assigned bitmap " << obj_addr(this) << ": [" << n0_ << ", " << ne_ << "], size = " << size_);
 }
 
 constexpr
@@ -1305,17 +1407,10 @@ template <uint8_t... Primes>
 constexpr
 void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
 {
-    LFP_LOG("bitmap " << obj_addr(this) << ": about to apply pack of bitmasks (primes: " << maskPack.primes_as_string()  << ")");
-#ifdef LFP_ACTIVATE_LOG
-    template <typename Func>
-    struct call_before_return {
-	call_before_return(Func f) : f_(f) {}
-	~call_before_return() {
-	    f_();
-        }
-    } callBeforeRet;
-    LFP_LOG("bitmap " << obj_addr(bitmap_) << ": applied pack of bitmasks (primes: " << maskPack.primes_as_string() << ")");
-#endif    
+    LFP_LOG_S("bitmap " << obj_addr(this) << ": about to apply pack of bitmasks for primes {"
+		        << maskPack.primes_as_string() << "}",
+	      "bitmap " << obj_addr(this) << ": pack of bitmasks applied");
+
     constexpr auto masksCount = maskPack.size();
     // We apply each mask individualy until we reach an offset where they can be applied
     // all together.
@@ -1860,12 +1955,15 @@ sieve(I k0, I k1, Fct ff)
 {
     static_assert(is_one_of_v<I, int8_t, uint8_t, int16_t, uint16_t,
             int32_t, uint32_t, int64_t, uint64_t>);
+
     if constexpr(std::numeric_limits<I>::is_signed) {
         k0 = (std::max)(I{0}, k0);
         k1 = (std::max)(I{0}, k1);
     }
     using U = std::make_unsigned_t<I>;
     const U n0 = U(k0), n1 = U(k1);
+    
+    LFP_LOG("sieving range [" << n0 << ", " << n1 << "[");
 
     constexpr U maxn = std::numeric_limits<U>::max();
     constexpr U segmentSize = []() {
