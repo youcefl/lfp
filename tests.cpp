@@ -229,3 +229,13 @@ TEST_CASE("Sieve of Erathostenes - misc - #1") {
     CHECK_THAT(lfp::count_primes(uint64_t(1'005'000'000'000),  uint64_t(1'006'250'000'000)), equals(45228966));
 }
 
+TEST_CASE("Sieve of Erathostenes - misc - #2") {
+    auto primes = lfp::sieve_to_vector<int64_t>(10'000'000'000ull, 10'000'140'000ull);
+    CHECK_THAT(primes.size(), equals(6073));
+    CHECK_THAT(primes.back(), equals(10'000'139'969));
+    CHECK_THAT(primes[primes.size() - 2], equals(10'000'139'953));
+    CHECK_THAT(primes.front(), equals(10'000'000'019));
+    // 3037th prime after 10^10
+    CHECK_THAT(primes[primes.size() / 2], equals(10'000'070'131));
+}
+

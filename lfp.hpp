@@ -1954,7 +1954,7 @@ constexpr auto
 sieve(I k0, I k1, Fct ff)
 {
     static_assert(is_one_of_v<I, int8_t, uint8_t, int16_t, uint16_t,
-            int32_t, uint32_t, int64_t, uint64_t>);
+            int32_t, uint32_t, int64_t, uint64_t, decltype(0ull)>);
 
     if constexpr(std::numeric_limits<I>::is_signed) {
         k0 = (std::max)(I{0}, k0);
