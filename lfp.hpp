@@ -2176,9 +2176,8 @@ constexpr std::size_t count_primes(U n0, U n1)
 {
     std::size_t count = 0;
     const auto rangeSize = [n1]() {
-	if(n1 < (1u << 30)) return 24*1024*1024;
-	if(n1 < (1ull << 32)) return 32*1024*1024;
-	if(n1 < (1ull << 34)) return 128*1024*1024;
+	if(n1 < (1ull << 32)) return 24*1024*1024;
+	if(n1 < (1ull << 36)) return 64*1024*1024;
 	return 256*1024*1024;
       } ();
     constexpr auto maxn = std::numeric_limits<U>::max();
