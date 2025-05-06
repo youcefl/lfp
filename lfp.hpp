@@ -211,7 +211,7 @@ inline log_impl & log()
 
 
 /// Constants
-inline constexpr std::size_t bucket_sieve_threshold = 65535;
+inline constexpr std::size_t bucket_sieve_threshold = 204800;
 inline constexpr std::size_t initial_bucket_capacity = 32768;
 
 /// Value meaning no offset i.e. the requested value is not present in the sequence
@@ -2025,7 +2025,7 @@ sieve(I k0, I k1, Fct ff)
             details::inner_sieve<U>(basePrimes, m0, m1,
                 [](auto, auto, details::Bitmap const *){ }, sieve_data{
                   .bitmap_ = &basePrimesBmp,
-                          .have_to_initialize_bitmap_ = true
+                  .have_to_initialize_bitmap_ = true
               });
     
         auto pSquared = U{};
@@ -2059,8 +2059,22 @@ sieve(I k0, I k1, Fct ff)
         }
     }
 
+    U basePrimesUpperBound = [](){
+        if constexpr(bucket_sieve_threshold > (std::numeric_limits<U>::max)()) {
+	    return (std::numeric_limits<U>::max)();
+	} else {
+	    return U(bucket_sieve_threshold);
+	}
+      }();
+    // @todo: make this static?
+    auto basePrimesForSegmentSieve = [basePrimesUpperBound](){
+	Bitmap bmp;
+	sieve_data sievdat{.bitmap_ = &bmp};
+	return inner_sieve<U>(u16primes<U>, U{}, basePrimesUpperBound, collectSieveResults<U>, sievdat);
+      }();
+    
     for(auto & currentSegment : segments) {
-        details::inner_sieve<T>(u16primes<U>, currentSegment.low_, currentSegment.high_,
+        details::inner_sieve<T>(basePrimesForSegmentSieve, currentSegment.low_, currentSegment.high_,
             [&](auto it, auto ite, details::Bitmap const*){
                 if(it != ite) {
                     prefix = std::vector<T>{it, ite};
@@ -2161,7 +2175,12 @@ template <typename U>
 constexpr std::size_t count_primes(U n0, U n1)
 {
     std::size_t count = 0;
-    constexpr auto rangeSize = 24*1024*1024;
+    const auto rangeSize = [n1]() {
+	if(n1 < (1u << 30)) return 24*1024*1024;
+	if(n1 < (1ull << 32)) return 32*1024*1024;
+	if(n1 < (1ull << 34)) return 128*1024*1024;
+	return 256*1024*1024;
+      } ();
     constexpr auto maxn = std::numeric_limits<U>::max();
     for(auto a0 = n0, a1 = std::min(n1, (maxn - rangeSize < n0) ? maxn : n0 + rangeSize);
 	a0 < n1;
