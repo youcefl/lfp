@@ -25,14 +25,14 @@ static_assert(sieve_to_vector<uint32_t>(uint32_t(0), uint32_t(3)) == std::vector
 static_assert(sieve_to_vector<uint32_t>(uint32_t(262121), uint32_t(262144)) == std::vector<uint32_t>{262121, 262127, 262133, 262139});
 static_assert(sieve_to_vector<uint32_t>(uint32_t(1048576), uint32_t(1048700)) == std::vector<uint32_t>{1048583, 1048589, 1048601, 1048609,
 	    1048613, 1048627, 1048633, 1048661, 1048681});
-static_assert(sieve_to_vector<uint32_t>(uint32_t(61075016), uint32_t(61075116))  == std::vector<uint32_t>{61075019, 61075037, 61075057, 61075061,
-	    61075087, 61075099, 61075103, 61075109, 61075111});
 static_assert(sieve_to_vector<int64_t>(uint64_t(1000000), uint64_t(1000010)) == std::vector<int64_t>{1000003});
 
 // The following tests make g++-12.2 stall while g++-13.3 has no issue compiling this file.
 // They are active by default, this allows to deactivate them.
 #ifndef LFP_TESTS_DISABLE_STATIC_ASSERTS_IN_HIGHER_RANGES
 
+static_assert(sieve_to_vector<uint32_t>(uint32_t(61075016), uint32_t(61075116))  == std::vector<uint32_t>{61075019, 61075037, 61075057, 61075061,
+	    61075087, 61075099, 61075103, 61075109, 61075111});
 static_assert(sieve_to_vector<uint32_t>(uint32_t(1074041825), uint32_t(1074041924)) == std::vector<uint32_t>{1074041849, 1074041869});
 static_assert(sieve_to_vector<uint32_t>(uint32_t(4294967196), uint32_t(4294967295)) == std::vector<uint32_t>{4294967197, 4294967231,
 	    4294967279, 4294967291});

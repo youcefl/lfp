@@ -211,7 +211,14 @@ inline log_impl & log()
 
 
 /// Constants
-inline constexpr std::size_t bucket_sieve_threshold = 204800;
+constexpr std::size_t bucketed_primes_threshold()
+{
+    if(std::is_constant_evaluated()) {
+	return 8192;
+    } else {
+	return 204800;
+    }
+}
 inline constexpr std::size_t initial_bucket_capacity = 32768;
 
 /// Value meaning no offset i.e. the requested value is not present in the sequence
@@ -1538,7 +1545,7 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
     auto & bmp = *sievdat.bitmap_;
 
     // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmap
-    constexpr unsigned int lastSmallPrime = 103;
+    constexpr unsigned int lastSmallPrime = 127;
     constexpr unsigned int smallPrimesThreshold = lastSmallPrime + 1;
     if(std::ranges::distance(basePrimes 
 			    | std::views::drop_while([](auto p) { return p < 7; }) 
@@ -1549,16 +1556,19 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
         bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
                  37, 41, 43, 47, 53, 59, 61, 67> bitmasks_2;
         bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
-                 71, 73, 79, 83, 89, 97, 101, lastSmallPrime> bitmasks_3;
+                 71, 73, 79, 83, 89, 97, 101, 103> bitmasks_3;
+        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
+                 107, 109, 113, lastSmallPrime> bitmasks_4;
         bmp.apply(bitmasks_1);
         bmp.apply(bitmasks_2);
         bmp.apply(bitmasks_3);
+        bmp.apply(bitmasks_4);
     }
 
     for(auto p : basePrimes
 		    | std::views::drop_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })
 		    | std::views::take_while([&sievdat](auto p){
-			    return !(sievdat.have_to_ignore_bucketable_primes_ && (p >= bucket_sieve_threshold)); })) {
+			    return !(sievdat.have_to_ignore_bucketable_primes_ && (p >= bucketed_primes_threshold())); })) {
         auto p2 = U{p} * p;
         if(p2 > ne) {
             break;
@@ -2031,7 +2041,7 @@ sieve(I k0, I k1, Fct ff)
         auto pSquared = U{};
         details::PrimesIterator<U> itP{&basePrimesBmp}, itPe{&basePrimesBmp, true};
         for(auto p : std::ranges::subrange(itP, itPe) 
-		     | std::views::drop_while([](auto q){ return q < bucket_sieve_threshold; })) {
+		     | std::views::drop_while([](auto q){ return q < bucketed_primes_threshold(); })) {
 	    pSquared = p * p;
 
 	    auto highest = segments.back().high_;
@@ -2060,10 +2070,10 @@ sieve(I k0, I k1, Fct ff)
     }
 
     U basePrimesUpperBound = [](){
-        if constexpr(bucket_sieve_threshold > (std::numeric_limits<U>::max)()) {
+        if constexpr(bucketed_primes_threshold() > (std::numeric_limits<U>::max)()) {
 	    return (std::numeric_limits<U>::max)();
 	} else {
-	    return U(bucket_sieve_threshold);
+	    return U(bucketed_primes_threshold());
 	}
       }();
     // @todo: make this static?
