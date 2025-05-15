@@ -1545,12 +1545,12 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
     }
     auto & bmp = *sievdat.bitmap_;
 
-    // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmapi
-    bool const useBitmasksForAllPrimesBelow128 = n1 > (std::numeric_limits<std::uint32_t>::max)();
-    unsigned int const smallPrimesThreshold = useBitmasksForAllPrimesBelow128 ? 128 : 104;
+    // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmap
+    constexpr unsigned int lastSmallPrime = 127;
+    constexpr unsigned int smallPrimesThreshold = lastSmallPrime + 1;
     if(std::ranges::distance(basePrimes 
 			    | std::views::drop_while([](auto p) { return p < 7; }) 
-			    | std::views::take_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })
+			    | std::views::take_while([](auto p) { return p < smallPrimesThreshold; })
 			    )) {
         bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
                  7, 11, 13, 17, 19, 23, 29, 31> bitmasks_1;
@@ -1558,14 +1558,12 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
                  37, 41, 43, 47, 53, 59, 61, 67> bitmasks_2;
         bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
                  71, 73, 79, 83, 89, 97, 101, 103> bitmasks_3;
+        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
+                 107, 109, 113, lastSmallPrime> bitmasks_4;
         bmp.apply(bitmasks_1);
         bmp.apply(bitmasks_2);
         bmp.apply(bitmasks_3);
-	if(useBitmasksForAllPrimesBelow128) {
-            bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
-                 107, 109, 113, 127> bitmasks_4;
-            bmp.apply(bitmasks_4);
-	}
+        bmp.apply(bitmasks_4);
     }
 
     for(auto p : basePrimes
@@ -2108,21 +2106,21 @@ void partition_range(U n0, U n1, int N, FuncT processRange)
 {
     if(N <= 0 || (n0 >= n1)) {
         processRange(n0, n0);
-    }
-    if((N == 1) || (n1 - n0 < N)) {
+    } else if((N == 1) || (n1 - n0 < N)) {
         processRange(n0, n1);
+    } else {
+        auto v = std::views::iota(1, N + 1);
+        auto weight = std::accumulate(std::begin(v), std::end(v), 0.0,
+            [](double x, auto k){ return x + 1.0 / std::sqrt(k);
+          });
+        auto c = (n1 - n0) / weight;
+        auto current = n0;
+        std::for_each(std::begin(v), std::end(v), [&](auto k){
+            auto ni = (k == N) ? n1 : current + c / std::sqrt(k);
+            processRange(current, ni);
+            current = ni;
+          });
     }
-    auto v = std::views::iota(1, N + 1);
-    auto weight = std::accumulate(std::begin(v), std::end(v), 0.0,
-        [](double x, auto k){ return x + 1.0 / std::sqrt(k);
-        });
-    auto c = (n1 - n0) / weight;
-    auto current = n0;
-    std::for_each(std::begin(v), std::end(v), [&](auto k){
-        auto ni = (k == N) ? n1 : current + c / std::sqrt(k);
-        processRange(current, ni);
-        current = ni;
-      });
 }
 
 } // namespace details
@@ -2231,7 +2229,7 @@ std::size_t count_primes(U n0, U n1, threads const & threads)
 	return 0;
     }
     auto numThreads = threads.count();
-    if((numThreads == 1) || (n1 - n0 <= numThreads)) {
+    if(n1 - n0 <= numThreads) {
         return count_primes(n0, n1);
     }
     std::vector<std::future<std::size_t>> results;

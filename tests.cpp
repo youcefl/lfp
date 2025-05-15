@@ -220,6 +220,7 @@ TEST_CASE("Sieve of Erathostenes - above 2^32 - #2") {
 }
 
 TEST_CASE("Sieve of Erathostenes - multithreaded sieve") {
+    CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1000000), lfp::threads{1}).count(), equals(78498));
     CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1000000), lfp::threads{2}).count(), equals(78498));
     CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1'000'000'000), lfp::threads{4}).count(), equals(50847534));
     CHECK_THAT(lfp::sieve<int64_t>(641*641, 8191*8191+1, lfp::threads{4}).count(), equals(3922190));
