@@ -86,13 +86,13 @@ template <typename U>
 std::size_t count_primes(U n0, U n1, Threads const & threads);
 
 /// @struct Holding concurrency information
-struct Threads
+struct threads
 {
     /// Constructs an instance x such that x.count() == std::thread::hardware_concurrency().
     /// If std::thread::hardware_concurrency() == 0, then x.count() is equal to 1.
-    Threads();
+    threads();
     /// Constructs an instance x such that x.count() == c
-    explicit Threads(unsigned int c);
+    explicit threads(unsigned int c);
     /// Returns the maximum number of concurrent threads to use during sieving.
     unsigned int count() const;
 // ...Private part omitted...
@@ -137,14 +137,14 @@ The following table gives an idea of the performances to expect from the sieve (
 
 | Range \ Threads | 1 | 4 | 8 | 16 | 32 | 48 | 64 | Number of primes |
 |-----------------|---|---|---|----|----|----|----|------------------|
-| $\left[0, 10^{9}\right[$ | 0.211 | 0.057 | 0.030 | 0.018 | 0.015 | 0.016 | 0.015 | **50847534** |
-| $\left[0, 2^{32}-1\right[$ | 0.979 | 0.263 | 0.133 | 0.070 | 0.043 | 0.036 | 0.037 | **203280221** |
-| $\left[10^{12}, 10^{12}+10^{10}\right[$ | 4.643 | 1.175 | 0.592 | 0.301 | 0.158 | 0.120 | 0.104 | **361840208** |
-| $\left[10^{15}, 10^{15}+10^{10}\right[$ | 26.475 | 6.620 | 3.324 | 1.670 | 0.863 | 0.603 | 0.521 | **289531946** |
-| $\left[10^{18}, 10^{18}+10^{10}\right[$ | 392.079 | 98.792 | 49.344 | 24.668 | 12.874 | 8.944 | 7.640 | **241272176** |
-| $\left[2^{64}-10^{10}, 2^{64}-1\right[$ | 1478.033 | 374.467 | 186.686 | 93.948 | 49.188 | 34.535 | 29.364 | **225402976** |
+| $\left[0, 10^{9}\right[$ | 0.279 | 0.095 | 0.061 | 0.041 | 0.033 | 0.038 | 0.037 | **50847534** |
+| $\left[0, 2^{32}-1\right[$ | 1.319 | 0.442 | 0.276 | 0.179 | 0.124 | 0.107 | 0.102 | **203280221** |
+| $\left[10^{12}, 10^{12}+10^{10}\right[$ | 5.041 | 1.833 | 1.201 | 0.836 | 0.591 | 0.500 | 0.463 | **361840208** |
+| $\left[10^{15}, 10^{15}+10^{10}\right[$ | 17.498 | 6.397 | 4.210 | 2.966 | 2.391 | 2.018 | 1.926 | **289531946** |
+| $\left[10^{18}, 10^{18}+10^{10}\right[$ | 72.288 | 26.501 | 17.121 | 11.614 | 8.221 | 6.592 | 6.359 | **241272176** |
+| $\left[2^{64}-10^{10}, 2^{64}-1\right[$ | 209.197 | 74.313 | 47.860 | 32.049 | 21.893 | 16.928 | 16.996 | **225402976** |
 
 
-These timings were measured on an AMD EPYC 9R14, the compilation flags used are "-std=c++20 -O3 -march=native -mtune=native" (OS: Debian 12, compiler: g++ version 12.2).
+These timings were measured on an AMD EPYC 9R14, the compilation flags used are "-std=c++20 -O3 -march=native -mtune=native -DNDEBUG" (OS: Debian 12, compiler: g++ version 12.2).
 
 
