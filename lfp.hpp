@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cmath>
 #include <array>
 #include <vector>
 #include <iostream>
@@ -31,7 +32,7 @@
 namespace lfp {
 
 // Forward declarations
-struct Threads;
+struct threads;
 template <typename T> class SieveResults;
 
 /// Returns the result of sieving the range [n0, n1).
@@ -42,7 +43,7 @@ constexpr SieveResults<T> sieve(U n0, U n1);
 /// Returns the result of sieving the range [n0, n1).
 /// The sieving is performed using at most threads.count() concurrent threads.
 template <typename T, typename U>
-SieveResults<T> sieve(U n0, U n1, Threads const & threads);
+SieveResults<T> sieve(U n0, U n1, threads const & threads);
 
 /// Returns a vector containing the prime numbers in range [n0, n1)
 template <typename T, typename U>
@@ -55,21 +56,21 @@ constexpr std::size_t count_primes(U n0, U n1);
 /// Returns the number of prime numbers in range [n0, n1)
 /// the sieving is performed using at most threads.count() ooncurrent threads.
 template <typename U>
-std::size_t count_primes(U n0, U n1, Threads const & threads);
+std::size_t count_primes(U n0, U n1, threads const & threads);
 
 /// @struct Holding concurrency information
-struct Threads
+struct threads
 {
     /// Constructs an instance x such that x.count() == std::thread::hardware_concurrency().
     /// If std::thread::hardware_concurrency() == 0, then x.count() is equal to 1.
-    Threads();
+    threads();
     /// Constructs an instance x such that x.count() == c 
-    explicit Threads(unsigned int c);
+    explicit threads(unsigned int c);
     /// Returns the maximum number of concurrent threads to use during sieving.
     unsigned int count() const;
 private:
     unsigned int count_;
-    static unsigned int defaultCount();
+    static unsigned int default_count();
 };
 
 } // namespace lfp
@@ -1544,12 +1545,12 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
     }
     auto & bmp = *sievdat.bitmap_;
 
-    // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmap
-    constexpr unsigned int lastSmallPrime = 127;
-    constexpr unsigned int smallPrimesThreshold = lastSmallPrime + 1;
+    // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmapi
+    bool const useBitmasksForAllPrimesBelow128 = n1 > (std::numeric_limits<std::uint32_t>::max)();
+    unsigned int const smallPrimesThreshold = useBitmasksForAllPrimesBelow128 ? 128 : 104;
     if(std::ranges::distance(basePrimes 
 			    | std::views::drop_while([](auto p) { return p < 7; }) 
-			    | std::views::take_while([](auto p) { return p < smallPrimesThreshold; })
+			    | std::views::take_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })
 			    )) {
         bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
                  7, 11, 13, 17, 19, 23, 29, 31> bitmasks_1;
@@ -1557,12 +1558,14 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
                  37, 41, 43, 47, 53, 59, 61, 67> bitmasks_2;
         bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
                  71, 73, 79, 83, 89, 97, 101, 103> bitmasks_3;
-        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
-                 107, 109, 113, lastSmallPrime> bitmasks_4;
         bmp.apply(bitmasks_1);
         bmp.apply(bitmasks_2);
         bmp.apply(bitmasks_3);
-        bmp.apply(bitmasks_4);
+	if(useBitmasksForAllPrimesBelow128) {
+            bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
+                 107, 109, 113, 127> bitmasks_4;
+            bmp.apply(bitmasks_4);
+	}
     }
 
     for(auto p : basePrimes
@@ -2099,11 +2102,34 @@ sieve(I k0, I k1, Fct ff)
     return ff(prefix, bitmaps);
 }
 
+
+template <typename U, typename FuncT>
+void partition_range(U n0, U n1, int N, FuncT processRange)
+{
+    if(N <= 0 || (n0 >= n1)) {
+        processRange(n0, n0);
+    }
+    if((N == 1) || (n1 - n0 < N)) {
+        processRange(n0, n1);
+    }
+    auto v = std::views::iota(1, N + 1);
+    auto weight = std::accumulate(std::begin(v), std::end(v), 0.0,
+        [](double x, auto k){ return x + 1.0 / std::sqrt(k);
+        });
+    auto c = (n1 - n0) / weight;
+    auto current = n0;
+    std::for_each(std::begin(v), std::end(v), [&](auto k){
+        auto ni = (k == N) ? n1 : current + c / std::sqrt(k);
+        processRange(current, ni);
+        current = ni;
+      });
+}
+
 } // namespace details
 
 
 inline unsigned int
-Threads::defaultCount()
+threads::default_count()
 {
     static auto v = []() {
 	auto c = std::thread::hardware_concurrency();
@@ -2112,15 +2138,15 @@ Threads::defaultCount()
     return v;
 }
 
-inline Threads::Threads()
-    : count_(Threads::defaultCount())
+inline threads::threads()
+    : count_(threads::default_count())
 {}
 
-inline Threads::Threads(unsigned int numThreads)
+inline threads::threads(unsigned int numThreads)
     : count_(numThreads ? numThreads : 1)
 {}
 
-inline unsigned int Threads::count() const
+inline unsigned int threads::count() const
 {
     return count_;
 }
@@ -2147,36 +2173,34 @@ sieve_to_vector(U n0, U n1)
 
 template <typename T, typename U>
 SieveResults<T>
-sieve(U n0, U n1, Threads const & threads)
+sieve(U n0, U n1, threads const & threads)
 {
     if(threads.count() == 1 || (n1 <= n0) || (n1 - n0) <= threads.count()) {
 	return sieve<T>(n0, n1);
     }
-    auto numThreads = threads.count();
     std::vector<std::future<std::vector<details::Bitmap>>> results;
     std::vector<T> prefix;
-    for(auto k = n0, dk = (n1 - n0) / numThreads, ek = (n1 - n0) % numThreads; k < n1; ek = ek ? ek - 1 : 0) {
-	auto kmax = k + dk + (ek ? 1 : 0);
+    details::partition_range(n0, n1, threads.count(), [&](U v0, U v1) {
 	results.emplace_back(std::async(std::launch::async,
-		[&prefix](U v0, U v1){
+		[v0, v1, &prefix](){
 		   return details::sieve<T>(v0, v1,
-			[&prefix](auto & pref, std::vector<details::Bitmap> & bmps) {
+			[&](auto & pref, std::vector<details::Bitmap> & bmps) {
 			    if(!pref.empty()) {
 			        prefix = std::move(pref);
 			    }
 			    return std::move(bmps);
 			});
-		}, k, kmax));
-	k = kmax;
-    }
+		}));
+    });
     std::vector<details::Bitmap> bmps =
-    std::accumulate(std::begin(results), std::end(results), std::vector<details::Bitmap>{},
-        [](auto x, auto & y) {
-	    for(auto & b : y.get()) {
-	        x.emplace_back(std::move(b));
-	    }
-	    return std::move(x);
-	});
+        std::accumulate(std::begin(results), std::end(results),
+          std::vector<details::Bitmap>{},
+          [](auto x, auto & y) {
+	      for(auto & b : y.get()) {
+	          x.emplace_back(std::move(b));
+	      }
+	      return std::move(x);
+	  });
     return SieveResults<T>{std::move(prefix), std::move(bmps)};
 }
 
@@ -2201,25 +2225,24 @@ constexpr std::size_t count_primes(U n0, U n1)
 }
 
 template <typename U>
-std::size_t count_primes(U n0, U n1, Threads const & threads)
+std::size_t count_primes(U n0, U n1, threads const & threads)
 {
     if(n0 >= n1) {
 	return 0;
     }
     auto numThreads = threads.count();
-    if(n1 - n0 < numThreads) {
+    if((numThreads == 1) || (n1 - n0 <= numThreads)) {
         return count_primes(n0, n1);
     }
     std::vector<std::future<std::size_t>> results;
-    for(auto k = n0, dk = (n1 - n0) / numThreads, ek = (n1 - n0) % numThreads; k < n1; ek = ek ? ek - 1 : 0) {
-	auto kmax = k + dk + (ek ? 1 : 0);
-	results.emplace_back(std::async(std::launch::async, static_cast<std::size_t(*)(U,U)>(count_primes<U>), k, kmax));
-	k = kmax;
-    }
+    details::partition_range(n0, n1, numThreads, [&results](U v0, U v1) {
+	results.emplace_back(std::async(std::launch::async, static_cast<std::size_t(*)(U,U)>(count_primes<U>), v0, v1));
+    });
     return std::accumulate(std::begin(results), std::end(results),
 		    std::size_t{}, [](auto x, auto & y) { return x + y.get(); });
 }
 
 } // namespace lfp
+
 
 

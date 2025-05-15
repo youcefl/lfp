@@ -36,7 +36,7 @@ int main(int argc, char** argv)
     istr1 >> n1;
 
     auto const startt = std::chrono::steady_clock::now();
-    auto numPrimes = lfp::count_primes(n0, n1, lfp::Threads{numThreads < 0 ? 1u : (unsigned int)numThreads});
+    auto numPrimes = lfp::count_primes(n0, n1, lfp::threads{numThreads < 0 ? 1u : (unsigned int)numThreads});
     auto const endt = std::chrono::steady_clock::now();
 
     std::cout << "The number of prime numbers in range [" << n0 << ", " << n1 << "[ is "
