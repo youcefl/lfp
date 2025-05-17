@@ -129,6 +129,7 @@ This sieve leverages several optimization techniques for performance and scalabi
  - a range $R = [n_0, n_1[$ to be sieved is represented by a sequence of bits, called a bitmap, to each bit corresponds one and only one of the integers coprime to 30 in $R$, thus we only consume about $\frac{4}{15}\cdot(n_1 - n_0)$ bits of memory to represent R.
  - when crossing out the multiples of a prime $p$, we start at $p^{2}$ and, since we are using a modulo 30 wheel, we only consider the multiples of $p$ of the form $p^{2} + 2kp$ ($k$ being an integer >= 0) that are coprime to 30.
  - for each prime $p$ below a certain threshold (currently 104), we precompute a bitmask of length $8p$ at compile time. These bitmasks are applied in batches—e.g., in one pass, we cross out multiples of {7, 11, ..., 31}. The threshold 104 was chosen to group primes into three sets of eight (optimized for batch processing) and empirically showed better performance than higher values (though future tuning may optimize this further).
+ - the sieve employs bucket sieving for primes above 204800—a technique that groups large primes into cache-friendly batches. This threshold was chosen to balance overhead and gains but may be optimized further in future releases.
  - the sieve is segmented i.e. if the size of the range R to sieve exceeds a certain threshold S, R is split into segments of size at most S.
  - the sieve is multithreaded, we allocate N threads and each thread deals with part of the range to sieve.
  - the memory allocated for a bitmap is 64-byte aligned.
