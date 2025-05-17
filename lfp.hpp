@@ -1546,7 +1546,7 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
     auto & bmp = *sievdat.bitmap_;
 
     // Primes below a certain threshold are dealt with by applying precomputed masks to the bitmap
-    constexpr unsigned int lastSmallPrime = 127;
+    constexpr unsigned int lastSmallPrime = 103;
     constexpr unsigned int smallPrimesThreshold = lastSmallPrime + 1;
     if(std::ranges::distance(basePrimes 
 			    | std::views::drop_while([](auto p) { return p < 7; }) 
@@ -1557,13 +1557,10 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
         bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
                  37, 41, 43, 47, 53, 59, 61, 67> bitmasks_2;
         bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
-                 71, 73, 79, 83, 89, 97, 101, 103> bitmasks_3;
-        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
-                 107, 109, 113, lastSmallPrime> bitmasks_4;
+                 71, 73, 79, 83, 89, 97, 101, lastSmallPrime> bitmasks_3;
         bmp.apply(bitmasks_1);
         bmp.apply(bitmasks_2);
         bmp.apply(bitmasks_3);
-        bmp.apply(bitmasks_4);
     }
 
     for(auto p : basePrimes
