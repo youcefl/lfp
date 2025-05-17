@@ -166,13 +166,15 @@ TEST_CASE("Sieve of Erathostenes - primes iterator and range") {
     using namespace lfp::details;
     {
         Bitmap bmp;
-        inner_sieve<uint32_t>(u8primes<uint8_t>, 300u, 400u, [](auto, auto, auto) {}, bmp);
+	sieve_data sievdat{.bitmap_ = &bmp};
+        inner_sieve<uint32_t>(u8primes<uint8_t>, 300u, 400u, [](auto, auto, auto) {}, sievdat);
         PrimesIterator<uint32_t> it{&bmp}, ite{&bmp, true};
         CHECK_THAT(std::vector<uint32_t>(it, ite), Equals(primes_by_division<uint32_t>(300, 400)));
     }
     {
 	Bitmap bmp;
-	inner_sieve<int32_t>(u16primes<uint16_t>, 10000u, 12000u, [](auto, auto, auto) {}, bmp);
+	sieve_data sievdat{.bitmap_ = &bmp};
+	inner_sieve<int32_t>(u16primes<uint16_t>, 10000u, 12000u, [](auto, auto, auto) {}, sievdat);
         PrimesIterator<int32_t> it{&bmp}, ite{&bmp, true};
         CHECK_THAT(std::vector<int32_t>(it, ite), Equals(primes_by_division<int32_t>(10000, 12000)));
     }
@@ -218,12 +220,23 @@ TEST_CASE("Sieve of Erathostenes - above 2^32 - #2") {
 }
 
 TEST_CASE("Sieve of Erathostenes - multithreaded sieve") {
-    CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1000000), lfp::Threads{2}).count(), equals(78498));
-    CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1'000'000'000), lfp::Threads{4}).count(), equals(50847534));
-    CHECK_THAT(lfp::sieve<int64_t>(641*641, 8191*8191+1, lfp::Threads{4}).count(), equals(3922190));
+    CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1000000), lfp::threads{1}).count(), equals(78498));
+    CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1000000), lfp::threads{2}).count(), equals(78498));
+    CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1'000'000'000), lfp::threads{4}).count(), equals(50847534));
+    CHECK_THAT(lfp::sieve<int64_t>(641*641, 8191*8191+1, lfp::threads{4}).count(), equals(3922190));
 }
 
 TEST_CASE("Sieve of Erathostenes - misc - #1") {
     CHECK_THAT(lfp::count_primes(uint64_t(1'005'000'000'000),  uint64_t(1'006'250'000'000)), equals(45228966));
+}
+
+TEST_CASE("Sieve of Erathostenes - misc - #2") {
+    auto primes = lfp::sieve_to_vector<int64_t>(10'000'000'000ull, 10'000'140'000ull);
+    CHECK_THAT(primes.size(), equals(6073));
+    CHECK_THAT(primes.back(), equals(10'000'139'969));
+    CHECK_THAT(primes[primes.size() - 2], equals(10'000'139'953));
+    CHECK_THAT(primes.front(), equals(10'000'000'019));
+    // 3037th prime after 10^10
+    CHECK_THAT(primes[primes.size() / 2], equals(10'000'070'131));
 }
 

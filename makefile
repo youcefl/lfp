@@ -4,8 +4,10 @@
 # Creation date: december 2024.
 
 CXX ?= g++
-CXFLAGS ?= -std=c++20 -O3 -march=native $(ADDITIONAL_CXFLAGS)
+CXFLAGS ?= -std=c++20 -O3 -march=native -DNDEBUG $(ADDITIONAL_CXFLAGS)
 STATIC_TESTS_CXFLAGS ?=
+# By default we activate assertions during testing
+DYNAMIC_TESTS_FLAGS ?= -UNDEBUG
 SYNTAX_ONLY_FLAG=-fsyntax-only
 TEST_LIBS ?= -lCatch2Main -lCatch2
 TEST_LIB_INSTALL ?= ./Catch2-install
@@ -25,7 +27,7 @@ static_tests_%: static_tests_%.cpp lfp.hpp
 	$(CXX) $(CXFLAGS) $(SYNTAX_ONLY_FLAG) $(STATIC_TESTS_CXFLAGS) $<
 
 tests: tests.cpp lfp.hpp
-	$(CXX) $(CXFLAGS) $(TEST_LIB_INCL_OPT) -o $@ $< $(TEST_LIB_LIB_OPT)  $(TEST_LIBS)
+	$(CXX) $(CXFLAGS) $(DYNAMIC_TESTS_FLAGS) $(TEST_LIB_INCL_OPT) -o $@ $< $(TEST_LIB_LIB_OPT)  $(TEST_LIBS)
 
 all: static_tests lfp tests
 
