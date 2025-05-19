@@ -165,17 +165,17 @@ TEST_CASE("Sieve of Erathostenes - primes iterator and range") {
     using namespace lfp;
     using namespace lfp::details;
     {
-        Bitmap bmp;
-	sieve_data sievdat{.bitmap_ = &bmp};
+        bitmap<uint32_t> bmp;
+	sieve_data<uint32_t> sievdat{.bitmap_ = &bmp};
         inner_sieve<uint32_t>(u8primes<uint8_t>, 300u, 400u, [](auto, auto, auto) {}, sievdat);
-        PrimesIterator<uint32_t> it{&bmp}, ite{&bmp, true};
+        primes_iterator<uint32_t, uint32_t> it{&bmp}, ite{&bmp, true};
         CHECK_THAT(std::vector<uint32_t>(it, ite), Equals(primes_by_division<uint32_t>(300, 400)));
     }
     {
-	Bitmap bmp;
-	sieve_data sievdat{.bitmap_ = &bmp};
+	bitmap<uint32_t> bmp;
+	sieve_data<uint32_t> sievdat{.bitmap_ = &bmp};
 	inner_sieve<int32_t>(u16primes<uint16_t>, 10000u, 12000u, [](auto, auto, auto) {}, sievdat);
-        PrimesIterator<int32_t> it{&bmp}, ite{&bmp, true};
+        primes_iterator<int32_t, uint32_t> it{&bmp}, ite{&bmp, true};
         CHECK_THAT(std::vector<int32_t>(it, ite), Equals(primes_by_division<int32_t>(10000, 12000)));
     }
     {
@@ -187,7 +187,7 @@ TEST_CASE("Sieve of Erathostenes - primes iterator and range") {
     }
     {
 	auto n0 = 1234567890, n1 = 1234667890;
-	auto sieveres = sieve<int32_t>(n0, n1);
+	auto sieveres = sieve<int32_t>(uint32_t(n0), uint32_t(n1));
 	std::vector<int32_t> primes;
 	primes.reserve(sieveres.count());
 	for(auto p : sieveres) {
@@ -223,7 +223,7 @@ TEST_CASE("Sieve of Erathostenes - multithreaded sieve") {
     CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1000000), lfp::threads{1}).count(), equals(78498));
     CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1000000), lfp::threads{2}).count(), equals(78498));
     CHECK_THAT(lfp::sieve<int64_t>(uint64_t(0), uint64_t(1'000'000'000), lfp::threads{4}).count(), equals(50847534));
-    CHECK_THAT(lfp::sieve<int64_t>(641*641, 8191*8191+1, lfp::threads{4}).count(), equals(3922190));
+    CHECK_THAT(lfp::sieve<int64_t>(uint64_t(641 * 641), uint64_t(8191 * 8191 + 1), lfp::threads{4}).count(), equals(3922190));
 }
 
 TEST_CASE("Sieve of Erathostenes - misc - #1") {
