@@ -8,62 +8,12 @@
 #include "catch2/matchers/catch_matchers_all.hpp"
 
 #include "lfp.hpp"
+#include "lfp_tests.hpp"
 
 using lfp::count_primes;
 using lfp::sieve_to_vector;
 using Catch::Matchers::Equals;
 
-
-template <typename T>
-std::vector<T>
-primes_by_division(uint64_t a, uint64_t b)
-{
-    std::vector<T> results;
-    if(a <= 2) {
-	if(b > 2) {
-            results.push_back(2);
-	}
-	a = 3;
-    }
-    constexpr auto cmax = std::numeric_limits<decltype(b)>::max();
-    for(auto c = a | 1; c < b; c = (c > cmax - 2) ? cmax : c + 2) {
-	if(!(c % 3) && (c != 3)) {
-	    continue;
-	}
-	bool isPrime = true;
-	int w[] = {2,4}, i = 0;
-        for(uint64_t p = 5; (p * p <= c) && (p <= std::numeric_limits<uint32_t>::max()); p += w[i], i^=1) {
-	    if(!(c % p)) {
-                isPrime = false;
-		break;
-	    }
-	}
-	if(isPrime) {
-	    results.push_back(c);
-	}
-    }
-    return results;
-}
-
-template <typename T>
-struct EqualsMatcher : Catch::Matchers::MatcherBase<T>
-{
-    EqualsMatcher(T const & target) : target_(target) {}
-    bool match(T const & actual) const override {
-	return actual == target_;
-    }
-    std::string describe() const override {
-	return "equals " + Catch::Detail::stringify(target_);
-    }
-private:
-    T target_;
-};
-
-template <typename T>
-EqualsMatcher<T> equals(T const & target)
-{
-    return EqualsMatcher<T>(target);
-}
 
 
 TEST_CASE("Sieve of Erathostenes - small primes - #1") {
@@ -226,6 +176,15 @@ TEST_CASE("Sieve of Erathostenes - multithreaded sieve") {
     CHECK_THAT(lfp::sieve<int64_t>(uint64_t(641 * 641), uint64_t(8191 * 8191 + 1), lfp::threads{4}).count(), equals(3922190));
 }
 
+#if 0 //LFP_HAS_UINT128
+TEST_CASE("Sieve of Erathostenes - above 2^64 - #1") {
+    volatile lfp::uint128_t n0 = lfp::uint128_t(1) << 64;
+    auto res = lfp::sieve<lfp::int128_t>(n0, n0 + 1000, lfp::threads{1});
+/*    std::vector<lfp::int128_t> primes{begin(res), end(res)};
+    CHECK_THAT(primes.front() == ((lfp::uint128_t(1) << 64) + 13), equals(true)); */
+}
+#endif // LFP_HAS_UINT128
+
 TEST_CASE("Sieve of Erathostenes - misc - #1") {
     CHECK_THAT(lfp::count_primes(uint64_t(1'005'000'000'000),  uint64_t(1'006'250'000'000)), equals(45228966));
 }
@@ -239,4 +198,20 @@ TEST_CASE("Sieve of Erathostenes - misc - #2") {
     // 3037th prime after 10^10
     CHECK_THAT(primes[primes.size() / 2], equals(10'000'070'131));
 }
+
+TEST_CASE("Sieve of Erathostenes - misc - #3") {
+    auto primes = lfp::sieve_to_vector<int32_t>(2147483548u, 2147483648u);
+    CHECK_THAT(primes.size(), equals(6));
+    CHECK_THAT(primes, Equals(std::vector<int32_t>{2147483549, 2147483563, 2147483579, 2147483587, 2147483629, 2147483647}));
+}
+
+
+TEST_CASE("Sieve of Erathostenes - misc - #4") {
+    uint64_t n0 = uint64_t{1} << 32;
+    auto primes = lfp::sieve_to_vector<int64_t>(n0, n0 + 100);
+    CHECK_THAT(primes.size(), equals(6));
+    CHECK_THAT(primes, Equals(std::vector<int64_t>{4294967311, 4294967357, 4294967371, 4294967377, 4294967387, 4294967389}));
+}
+
+
 

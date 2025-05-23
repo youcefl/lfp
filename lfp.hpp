@@ -27,6 +27,7 @@
 #include <variant>
 #include <cassert>
 #include <span>
+#include <iomanip>
 
 
 namespace lfp {
@@ -77,7 +78,11 @@ private:
 
 } // namespace lfp
 
-
+#if defined(__SIZEOF_INT128__)
+#  define LFP_HAS_UINT128 1
+#else
+#  define LFP_HAS_UINT128 0
+#endif
 
 #ifdef NDEBUG
 # define LFP_ASSERT(...) ((void)0);
@@ -131,8 +136,111 @@ struct to_unsigned
     using type = std::make_unsigned_t<T>;
 };
 
+#if LFP_HAS_UINT128
+
+using int128_t = __int128;
+using uint128_t = unsigned __int128; 
+template <> struct to_unsigned<int128_t> { using type = uint128_t; };
+template <> struct to_unsigned<uint128_t> { using type = uint128_t; };
+
+inline std::ostream & operator<<(std::ostream & out, uint128_t u128)
+{
+    char buf[64];
+    auto ptr = &buf[std::size(buf) - 1];
+    *ptr = '\0';
+    do {
+	*--ptr = '0' + (u128 % 10);
+	u128 /= 10;
+    } while(u128);
+    return out << ptr;
+}
+
+inline std::ostream & operator<<(std::ostream & out, int128_t i128)
+{
+    if(i128 < 0) {
+	out << '-';
+	return out << uint128_t(-i128);
+    }
+    return out << uint128_t(i128);
+}
+
+inline uint128_t uint128_from_string(char const * str)
+{
+    uint128_t result = 0;
+    while(*str) {
+	if((*str < '0') || (*str > '9')) {
+	    break;
+	}
+	result *= 10;
+	result += *str - '0';
+	++str;
+    }
+    return result;
+}
+
+inline auto to_string(uint128_t u)
+{
+    auto const ten_19 = uint128_t(10'000'000'000'000'000'000ull);
+    uint64_t digits[3] = {};
+    int i  = 2;
+    while(u) {
+        digits[i--] = u % ten_19;
+        u /= ten_19;
+    }
+    for(i = 0; (i < 3) && !digits[i]; ++i);
+    if(i == 3) {
+        return std::string{"0"};
+    }
+    bool pad = false;
+    std::ostringstream out;
+    for(; i < 3; ++i) {
+        if(!pad) {
+            out << digits[i];
+        } else {
+            out << std::setw(19) << std::setfill('0') << digits[i];
+        }
+        pad = pad || digits[i];
+    }
+    return out.str();
+}
+
+#endif // LFP_HAS_UINT128
 
 namespace details {
+
+template <typename UInt>
+constexpr int bit_width(UInt u)
+{
+    static_assert(std::is_unsigned_v<UInt>
+#if LFP_HAS_UINT128
+		    || std::is_same_v<UInt, unsigned __int128>
+#endif
+		    , "Unsigned types only");
+    static_assert(std::numeric_limits<UInt>::digits <= 128, "Values larger than 128 bits not supported");
+
+    if constexpr(std::numeric_limits<UInt>::digits > std::numeric_limits<std::uint64_t>::digits) {
+        if(u == UInt{}) {
+	    return 0;
+        }
+	constexpr int shift = std::numeric_limits<std::uint64_t>::digits;
+	auto hi = static_cast<std::uint64_t>(u >> shift);
+	return hi ? (shift + std::bit_width(hi)) : std::bit_width(static_cast<std::uint64_t>(u));
+    } else {
+	return std::bit_width(u);
+    }
+}
+
+/// Returns gcd(u, 30)
+/// Why? Because std::gcd does not support unsigned __int128 and because I need a gcd function
+/// only for asserting that gcd(x, 30) == 1 in various places.
+template <typename UInt>
+constexpr UInt gcd_30(UInt u) noexcept
+{
+    constexpr UInt res[30] = {30, 1, 2, 3, 2, 5, 6, 1, 2, 3, 10, 1, 6, 1, 2,
+                              15, 2, 1, 6, 1, 10, 3, 2, 1, 6, 5, 2, 3, 2, 1};
+    return res[u % 30];
+}
+
 
 class log_impl;
 
@@ -456,8 +564,8 @@ Ret compute_lt_coprime(U n1)
 template <typename U, typename V>
 constexpr std::size_t index_of(U m, uint8_t mmod30Idx,  V m0)
 {
-    LFP_ASSERT((m >= m0) && (std::gcd(m, 30) == 1)
-	      && (mmod30Idx == cp30res_to_idx(m % 30))  && (std::gcd(m0, 30) == 1));
+    LFP_ASSERT((m >= m0) && (gcd_30(m) == 1)
+	      && (mmod30Idx == cp30res_to_idx(m % 30))  && (gcd_30(m0) == 1));
 
     auto m0_idx = cp30res_to_idx(m0 % 30);
     return (m - m0) / 30 * 8 + ((mmod30Idx >= m0_idx) ? mmod30Idx - m0_idx : 8 + mmod30Idx - m0_idx);
@@ -468,7 +576,7 @@ constexpr std::size_t index_of(U m, uint8_t mmod30Idx,  V m0)
 template <typename U, typename V>
 constexpr std::size_t index_of(U m, V m0)
 {
-    LFP_ASSERT((m >= m0) && (std::gcd(m, 30) == 1) && (std::gcd(m0, 30) == 1));
+    LFP_ASSERT((m >= m0) && (gcd_30(m) == 1) && (gcd_30(m) == 1));
 
     auto m_idx = cp30res_to_idx(m % 30);
     auto m0_idx = cp30res_to_idx(m0 % 30);
@@ -480,7 +588,7 @@ constexpr std::size_t index_of(U m, V m0)
 template <typename V>
 constexpr V value_at(V n0, std::size_t offs)
 {
-    LFP_ASSERT(std::gcd(n0, 30) == 1);
+    LFP_ASSERT(gcd_30(n0) == 1);
 
     auto n0Idx = cp30res_to_idx(n0 % 30);
     auto nxIdx = (n0Idx + offs) % 8;
@@ -686,8 +794,9 @@ public:
     /// @pre idx < size()
     constexpr U word_at(std::size_t idx) const;
     /// Returns the offset in the bitmask corresponding to the composite c
-    /// @pre c is coprime to 30 and of the form p^2 + 2kp (k being an integer >= 0).
-    constexpr auto offset(std::size_t c) const;
+    /// @pre c is coprime to 30 and of the form p^2 + 2kp (k being an integer >= 0) where p = prime().
+    template <typename UInt>
+    constexpr auto offset(UInt c) const;
 
 private:
     static constexpr U word_at(U const * data, std::size_t idx);
@@ -738,8 +847,9 @@ bitmask_impl<U, P, UseDictionary, Alignment>::word_at(std::size_t idx) const
 
 
 template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
+template <typename UInt>
 constexpr auto
-bitmask_impl<U, P, UseDictionary, Alignment>::offset(std::size_t c) const
+bitmask_impl<U, P, UseDictionary, Alignment>::offset(UInt c) const
 {
     return offs_[cp30res_to_idx(c % 30)];
 }
@@ -1959,20 +2069,10 @@ struct segment
     bucket<U> * bucket_;
 };
 
-template <typename T, typename I, typename Fct>
+template <typename T, typename U, typename Fct>
 constexpr auto
-sieve(I k0, I k1, Fct ff)
+sieve(U n0, U n1, Fct ff)
 {
-    static_assert(is_one_of_v<I, int8_t, uint8_t, int16_t, uint16_t,
-            int32_t, uint32_t, int64_t, uint64_t, decltype(0ull)>);
-
-    if constexpr(std::numeric_limits<I>::is_signed) {
-        k0 = (std::max)(I{0}, k0);
-        k1 = (std::max)(I{0}, k1);
-    }
-    using U = std::make_unsigned_t<I>;
-    const U n0 = U(k0), n1 = U(k1);
-    
     LFP_LOG("sieving range [" << n0 << ", " << n1 << "[");
 
     constexpr U maxn = std::numeric_limits<U>::max();
@@ -2012,11 +2112,16 @@ sieve(I k0, I k1, Fct ff)
             return (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
         } else {
             // Established through tests
+	    if constexpr (std::numeric_limits<U>::digits > 64) {
+                if(n1 >= (U{1} << 64)) {
+                    return U{32*1024*1024};
+		}
+	    }
             if(n1 >= U{55}<<54) {
                 return U{16*1024*1024};
             }
             return (std::min)(U{16*1024*1024},
-                        U{1} << ((std::bit_width(n1) + 1)/2));
+                        U{1} << ((bit_width(n1) + 1) / 2));
         } }();
     constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
 
@@ -2257,6 +2362,5 @@ std::size_t count_primes(Int n0, Int n1, threads const & threads)
 }
 
 } // namespace lfp
-
 
 
