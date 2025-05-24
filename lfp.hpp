@@ -2086,6 +2086,9 @@ sieve(U n0, U n1, Fct ff)
     prefix.reserve(3);
     auto const estimatedNumSegments = (n1 - n0) / segmentSize + 1;
     std::vector<bitmap<U>> bitmaps;
+    if(n0 >= n1) {
+	return ff(prefix, bitmaps);
+    }
     bitmaps.reserve(estimatedNumSegments);
     std::vector<bucket<U>> buckets;
     buckets.reserve(estimatedNumSegments);
@@ -2213,17 +2216,20 @@ void partition_range(U n0, U n1, int N, FuncT processRange)
     } else if((N == 1) || (n1 - n0 < N)) {
         processRange(n0, n1);
     } else {
-        auto v = std::views::iota(1, N + 1);
-        auto weight = std::accumulate(std::begin(v), std::end(v), 0.0,
+        auto viota = std::views::iota(1, N + 1);
+        auto weight = std::accumulate(std::begin(viota), std::end(viota), 0.0,
             [](double x, auto k){ return x + 1.0 / std::sqrt(k);
           });
         auto c = (n1 - n0) / weight;
         auto current = n0;
-        std::for_each(std::begin(v), std::end(v), [&](auto k){
-            auto ni = (k == N) ? n1 : current + c / std::sqrt(k);
-            processRange(current, ni);
-            current = ni;
-          });
+	for(auto k : viota) {
+	    auto ni = std::min(n1, (k == N) ? n1 : current + U(c / std::sqrt(k)));
+	    processRange(current, ni);
+	    current = ni;
+	    if(current == n1) {
+		break;
+	    }
+	}
     }
 }
 
