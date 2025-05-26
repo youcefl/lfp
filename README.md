@@ -167,6 +167,63 @@ The following table gives an idea of the performances to expect from the sieve (
 
 These timings were measured on an AMD EPYC 9R14, the compilation flags used are "-std=c++20 -O3 -march=native -mtune=native -DNDEBUG" (OS: Debian 12, compiler: g++ version 12.2).
 
-Please note that I interrupted my optimization effort as soon as the performance became acceptable and there is obviously room for improvement. Compared to the state of the art, i.e. primesieve, which has been optimized over the course of 15 years, LFP is two times slower.
+Performance optimization was halted once LFP reached usable speeds. While it cannot match primesieve (a highly optimized tool developed over 15 years), surpassing it was never the objective—LFP focuses on compile-time flexibility and standards compliance.
 
+## Sieving above ${2}^{64}$
 
+LFP supports prime generation beyond 64-bit limits by accepting arbitrary unsigned integer types (e.g., `unsigned __int128` or user-provided big-integer types). When available, `unsigned __int128` is automatically enabled, allowing direct sieving above $2^{64}$. Example: to count primes in $[2^{72}, 2^{72} + 10^{10}[$ using 48 threads:
+```
+$ ./lfp -t 48 4722366482869645213696 4722366482879645213696
+```
+### Validation
+Some verification were done through:
+ - WolframAlpha Cross-Checks: manual validation of arbitrary ranges e.g. $[2^{70}, 2^{70} + 10^3[$:
+```
+$ ./lfp_with_dump -t 4 1180591620717411303424 1180591620717411304424
+The number of prime numbers in range [1180591620717411303424, 1180591620717411304424[ is 23.
+Took 45.7382s
+Primes:
+1180591620717411303449
+1180591620717411303491
+1180591620717411303503
+1180591620717411303529
+1180591620717411303539
+1180591620717411303613
+1180591620717411303619
+1180591620717411303659
+1180591620717411303727
+1180591620717411303763
+1180591620717411303809
+1180591620717411303829
+1180591620717411303839
+1180591620717411303883
+1180591620717411303911
+1180591620717411303949
+1180591620717411304069
+1180591620717411304109
+1180591620717411304117
+1180591620717411304151
+1180591620717411304223
+1180591620717411304313
+1180591620717411304393
+```
+- Targeted Stress Tests:
+Ranges centered on $p^2$ and $p \cdot q$ (where $q$ is the smallest prime $> p$) for $p > 2^{32}$.<br>
+Purpose: Ensures correct crossing-out of multiples for large base primes.<br>
+Example: Verified $p^2 = 18446744202558570721$ for $p = 2^{32} + 15$ (a 33-bit prime):<br>
+```
+$ ./lfp_with_dump 18446744202558570700 18446744202558570800
+The number of prime numbers in range [18446744202558570700, 18446744202558570800[ is 5.
+Took 8.98275s
+Primes:
+18446744202558570733
+18446744202558570739
+18446744202558570757
+18446744202558570779
+18446744202558570791
+```
+
+### Performance Notes
+
+Trade-offs: Operations on large integers are inherently slower due to arbitrary-precision arithmetic.<br>
+Parallelism: Multi-threading (-t N) mitigates latency for very large ranges.
