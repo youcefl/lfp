@@ -78,10 +78,12 @@ private:
 
 } // namespace lfp
 
-#if defined(__SIZEOF_INT128__)
-#  define LFP_HAS_UINT128 1
-#else
-#  define LFP_HAS_UINT128 0
+#if !defined(LFP_HAS_UINT128)
+#  if defined(__SIZEOF_INT128__)
+#    define LFP_HAS_UINT128 1
+#  else
+#    define LFP_HAS_UINT128 0
+#  endif
 #endif
 
 #ifdef NDEBUG
@@ -1679,10 +1681,11 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data<U> const & si
 		    | std::views::drop_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })
 		    | std::views::take_while([&sievdat](auto p){
 			    return !(sievdat.have_to_ignore_bucketable_primes_ && (p >= bucketed_primes_threshold())); })) {
+        if(p > ne / p) { // test it this way to avoid possible overflow with p^2
+	    break;
+	}
         auto p2 = U{p} * p;
-        if(p2 > ne) {
-            break;
-        }
+
         // Early continue if p has no multiple in the current segment. The first condition is to avoid paying the cost of
         // a modulo when there is a higher probability of p having a multiple in the current segment.
         // This doesn't worsen things too much in the lower ranges while improving the performances in the higher ranges.

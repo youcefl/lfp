@@ -14,7 +14,7 @@ namespace lfpd = lfp::details;
 using Catch::Matchers::Equals;
 
 
-TEST_CASE("Sieve of Erathostenes - internals - bitmap - #1")
+TEST_CASE("Sieve of Eratosthenes - internals - bitmap - #1")
 {
     using bitmap = lfpd::bitmap_impl<uint64_t, uint64_t>;
     bitmap bmp{7, 27};
@@ -29,7 +29,7 @@ TEST_CASE("Sieve of Erathostenes - internals - bitmap - #1")
     CHECK_THAT(bmp.value_at(bmp.index_of(103)), equals(103));
 }
 
-TEST_CASE("Sieve of Erathostenes - internals - bitmap - #2")
+TEST_CASE("Sieve of Eratosthenes - internals - bitmap - #2")
 {
     using bitmap_u16 = lfpd::bitmap_impl<uint16_t, uint64_t>;
     bitmap_u16 bmp{71 * 71, 321};
@@ -41,7 +41,7 @@ TEST_CASE("Sieve of Erathostenes - internals - bitmap - #2")
     CHECK_THAT(bmp.value_at(320), equals(6241));
 }
 
-TEST_CASE("Sieve of Erathostenes - internals - bitmask application - #1")
+TEST_CASE("Sieve of Eratosthenes - internals - bitmask application - #1")
 {
     lfpd::bitmap<uint32_t> bmp1{71 * 71, 320}, bmp2{bmp1};
     lfpd::bitmask_pack<uint64_t, 7, 11> pck;
@@ -63,7 +63,7 @@ TEST_CASE("Sieve of Erathostenes - internals - bitmask application - #1")
     }
 }
 
-TEST_CASE("Sieve of Erathostenes - internals - bitmask application - #2")
+TEST_CASE("Sieve of Eratosthenes - internals - bitmask application - #2")
 {
     lfpd::bitmap<uint32_t> bmp{7, (6241 - 7) / 30 * 8 + 7};
     lfpd::bitmask_pack<uint64_t, 7, 11, 13, 17, 19, 23, 29, 31> pck1;
@@ -106,23 +106,23 @@ void testSmallRangeBitmasking(UInt n0, std::size_t size)
 }
 
 
-TEST_CASE("Sieve of Erathostenes - internals - bitmask application - #3")
+TEST_CASE("Sieve of Eratosthenes - internals - bitmask application - #3")
 {
     testSmallRangeBitmasking((uint64_t(1) << 32) + 1, 27);
 }
 
 #if LFP_HAS_UINT128
-TEST_CASE("Sieve of Erathostenes - internals - bitmask application - 128-bit - #1")
+TEST_CASE("Sieve of Eratosthenes - internals - bitmask application - 128-bit - #1")
 {
     testSmallRangeBitmasking<lfp::uint128_t>((uint64_t(1) << 32) + 1, 27);
 }
 
-TEST_CASE("Sieve of Erathostenes - internals - bitmask application - 128-bit - #2")
+TEST_CASE("Sieve of Eratosthenes - internals - bitmask application - 128-bit - #2")
 {
     testSmallRangeBitmasking<lfp::uint128_t>((lfp::uint128_t{1} << 64) + 1, 27);
 }
 
-TEST_CASE("Sieve of Erathostenes - internal - 128-bit integers output - #1")
+TEST_CASE("Sieve of Eratosthenes - internal - 128-bit integers output - #1")
 {
     CHECK_THAT(lfp::to_string(lfp::uint128_t{}), Equals("0"));
     lfp::uint128_t x{2199023255579ull};
