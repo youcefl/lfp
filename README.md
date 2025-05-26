@@ -133,7 +133,14 @@ public:
 } // namespace lfp
 
 ```
+## Validation
 
+LFP’s results were rigorously verified through:
+- Dynamic unit tests: Runtime checks across edge cases and arbitrary ranges.
+- Static assertions: Compile-time validation of constexpr outputs.
+- Cross-referencing:
+    - For ranges below 2<sup>64</sup>: Automated comparison against primesieve and WolframAlpha.
+    - For ranges above 2<sup>64</sup>: Manual verification using WolframAlpha as an authoritative source.
 
 ## Performances
 
@@ -159,5 +166,7 @@ The following table gives an idea of the performances to expect from the sieve (
 | $\left[2^{64}-10^{10}, 2^{64}-1\right[$ | 200.867 | 71.364 | 45.911 | 30.781 | 21.050 | 16.361 | 16.497 | **225402976** |
 
 These timings were measured on an AMD EPYC 9R14, the compilation flags used are "-std=c++20 -O3 -march=native -mtune=native -DNDEBUG" (OS: Debian 12, compiler: g++ version 12.2).
+
+Please note that I interrupted my optimization effort as soon as the performance became acceptable and there is obviously room for improvement. Compared to the state of the art, i.e. primesieve, which has been optimized over the course of 15 years, LFP is two times slower.
 
 
