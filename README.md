@@ -157,13 +157,13 @@ This sieve leverages several optimization techniques for performance and scalabi
 The following table gives an idea of the performances to expect from the sieve (all durations are in seconds):
 
 | Range \ Threads | 1 | 4 | 8 | 16 | 32 | 48 | 64 | Number of primes |
-|-----------------|---|---|---|----|----|----|----|------------------|
-| $\left[0, 10^{9}\right[$ | 0.228 | 0.079 | 0.050 | 0.035 | 0.034 | 0.036 | 0.037 | **50847534** |
-| $\left[0, 2^{32}-1\right[$ | 1.077 | 0.362 | 0.224 | 0.146 | 0.104 | 0.092 | 0.088 | **203280221** |
-| $\left[10^{12}, 10^{12}+10^{10}\right[$ | 4.421 | 1.610 | 1.058 | 0.741 | 0.530 | 0.453 | 0.421 | **361840208** |
-| $\left[10^{15}, 10^{15}+10^{10}\right[$ | 16.800 | 6.148 | 4.052 | 2.878 | 2.308 | 1.983 | 1.888 | **289531946** |
-| $\left[10^{18}, 10^{18}+10^{10}\right[$ | 69.846 | 25.593 | 16.562 | 11.224 | 7.947 | 6.384 | 6.199 | **241272176** |
-| $\left[2^{64}-10^{10}, 2^{64}-1\right[$ | 200.867 | 71.364 | 45.911 | 30.781 | 21.050 | 16.361 | 16.497 | **225402976** |
+|-----------------|---|---|---|---|---|---|---|-------------------|
+| $\left[0, 10^{9}\right[$ | .280 | .096 | .062 | .042 | .035 | .037 | .037 | **50847534** |
+| $\left[0, 2^{32}-1\right[$ | 1.301 | .444 | .276 | .180 | .125 | .110 | .103 | **203280221** |
+| $\left[10^{12}, 10^{12}+10^{10}\right[$ | 5.648 | 2.061 | 1.341 | .926 | .655 | .552 | .504 | **361840208** |
+| $\left[10^{15}, 10^{15}+10^{10}\right[$ | 18.091 | 6.614 | 4.338 | 3.057 | 2.447 | 2.061 | 1.959 | **289531946** |
+| $\left[10^{18}, 10^{18}+10^{10}\right[$ | 72.772 | 26.614 | 17.191 | 11.681 | 8.297 | 6.601 | 6.372 | **241272176** |
+| $\left[2^{64}-10^{10}, 2^{64}-1\right[$ | 208.423 | 74.847 | 48.160 | 32.267 | 22.064 | 17.044 | 17.016 | **225402976** |
 
 These timings were measured on an AMD EPYC 9R14, the compilation flags used are "-std=c++20 -O3 -march=native -mtune=native -DNDEBUG" (OS: Debian 12, compiler: g++ version 12.2).
 
@@ -179,9 +179,9 @@ $ ./lfp -t 48 4722366482869645213696 4722366482879645213696
 Some verification were done through:
  - WolframAlpha Cross-Checks: manual validation of arbitrary ranges e.g. $[2^{70}, 2^{70} + 10^3[$:
 ```
-$ ./lfp_with_dump -t 4 1180591620717411303424 1180591620717411304424
+~$ ./lfp -t 4 -p 1180591620717411303424 1180591620717411304424
 The number of prime numbers in range [1180591620717411303424, 1180591620717411304424[ is 23.
-Took 45.7382s
+Took 50.6176s
 Primes:
 1180591620717411303449
 1180591620717411303491
@@ -212,9 +212,9 @@ Ranges centered on $p^2$ and $p \cdot q$ (where $q$ is the smallest prime $> p$)
 Purpose: Ensures correct crossing-out of multiples for large base primes.<br>
 Example: Verified $p^2 = 18446744202558570721$ for $p = 2^{32} + 15$ (a 33-bit prime):<br>
 ```
-$ ./lfp_with_dump 18446744202558570700 18446744202558570800
+$ ./lfp -p 18446744202558570700 18446744202558570800
 The number of prime numbers in range [18446744202558570700, 18446744202558570800[ is 5.
-Took 8.98275s
+Took 6.31544s
 Primes:
 18446744202558570733
 18446744202558570739
