@@ -61,6 +61,29 @@ for(auto p : lfp::sieve<uint32_t>(100000000, 110000000, lfp::threads{})) {
 
 ```
 
+## Testing and benchmarking
+
+To benchmark the library and/or run the existing tests download the repository and run make.
+To compile the command line tool:
+```
+$ cd lfp
+$ make lfp
+```
+To run the existing tests:
+```
+$ make checks
+```
+The lfp executable can be used to sieve a range [n_0, n_1[ for primes, use option -t/--threads to specify a number of threads and -p/--primes to output the primes found e.g.
+```
+# Sieve range [0, 10^10[ using up to 8 concurrent threads and output the number of primes found in the range
+$ lfp -t 8 0 10000000000
+
+# Output all primes in the range [100000, 101000[
+$ lfp -p 100000 101000
+```
+
+
+
 ## Public API
 
 The public API is as follows:
@@ -139,8 +162,8 @@ LFP’s results were rigorously verified through:
 - Dynamic unit tests: Runtime checks across edge cases and arbitrary ranges.
 - Static assertions: Compile-time validation of constexpr outputs.
 - Cross-referencing:
-    - For ranges below 2<sup>64</sup>: Automated comparison against primesieve and WolframAlpha.
-    - For ranges above 2<sup>64</sup>: Manual verification using WolframAlpha as an authoritative source.
+    - For ranges below 2<sup>64</sup>: automated comparison against primesieve and WolframAlpha.
+    - For ranges above 2<sup>64</sup>: manual verification using WolframAlpha as an authoritative source.
 
 ## Performances
 
