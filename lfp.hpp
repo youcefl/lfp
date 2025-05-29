@@ -1529,7 +1529,7 @@ void bitmap_impl<ValueT, LimbT>::apply(bitmask_pack<LimbT, Primes...> const & ma
 	      "bitmap " << obj_addr(this) << ": pack of bitmasks applied");
 
     constexpr auto masksCount = maskPack.size();
-    // We apply each mask individualy until we reach an offset where they can be applied
+    // We apply each mask individually until we reach an offset where they can be applied
     // all together.
     mask_application_data mappData[masksCount];
     [&]<std::size_t... I>(std::index_sequence<I...>){
