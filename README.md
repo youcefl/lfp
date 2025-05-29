@@ -69,10 +69,6 @@ To compile the command line tool:
 $ cd lfp
 $ make lfp
 ```
-To run the existing tests:
-```
-$ make checks
-```
 The lfp executable can be used to sieve a range [n_0, n_1[ for primes, use option -t/--threads to specify a number of threads and -p/--primes to output the primes found e.g.
 ```
 # Sieve range [0, 10^10[ using up to 8 concurrent threads and output the number of primes found in the range
@@ -81,7 +77,15 @@ $ lfp -t 8 0 10000000000
 # Output all primes in the range [100000, 101000[
 $ lfp -p 100000 101000
 ```
-
+To run the existing tests you will need to have [Catch2](https://github.com/catchorg/Catch2) installed (note that it is included as a submodule of the repository), once install simply run:
+```
+$ make checks
+```
+The tests are separated in two categories: the dynamic tests and the static tests, the dynamic ones are run by `make checks`, if your compiler supports it you can also run the static tests, which validate the sieve at compile time, by typing:
+```
+make static_tests
+```
+Note that the static tests do not need Catch2.
 
 
 ## Public API
