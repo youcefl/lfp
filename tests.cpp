@@ -189,7 +189,7 @@ TEST_CASE("Sieve of Eratosthenes - multithreaded sieve") {
 
 TEST_CASE("Sieve of Eratosthenes - above 2^64 - #1") {
     lfp::uint128_t n0 = lfp::uint128_t(1) << 64;
-    auto res = lfp::sieve<lfp::int128_t>(n0, n0 + 1000, lfp::threads{1});
+    auto res = lfp::sieve<lfp::int128_t>(n0, n0 + 1000);
     CHECK_THAT(res.count(), equals(25));
     std::vector<lfp::int128_t> primes{begin(res), end(res)};
     CHECK_THAT(primes.front(), equals((lfp::uint128_t(1) << 64) + 13));
@@ -201,10 +201,20 @@ TEST_CASE("Sieve of Eratosthenes - above 2^64 - #1") {
 TEST_CASE("Sieve of Eratosthenes - above 2^64 - #2") {
     lfp::uint128_t p = lfp::uint128_t(4294967311u);
     auto p2 = p * p, n0 = p2 - 21;
-    auto res = lfp::sieve<lfp::int128_t>(n0, n0 + 100, lfp::threads{1});
+    auto res = lfp::sieve<lfp::uint128_t>(n0, n0 + 100);
     CHECK_THAT(res.count(), equals(5));
-    std::vector<lfp::int128_t> primes{begin(res), end(res)};
-    std::vector<lfp::int128_t> expectedPrimes{n0 + 33, n0 + 39, n0 + 57, n0 + 79, n0 + 91};
+    std::vector<lfp::uint128_t> primes{begin(res), end(res)};
+    std::vector<lfp::uint128_t> expectedPrimes{n0 + 33, n0 + 39, n0 + 57, n0 + 79, n0 + 91};
+    CHECK_THAT(primes, Equals(expectedPrimes));
+}
+
+TEST_CASE("Sieve of Eratosthenes - above 2^64 - #3") {
+    lfp::uint128_t p = lfp::uint128_t(4394967299u), q = lfp::uint128_t(4394967301u);
+    auto n0 = p * q - 99;
+    auto res = lfp::sieve<lfp::uint128_t>(n0, n0 + 100);
+    CHECK_THAT(res.count(), equals(4));
+    std::vector<lfp::uint128_t> primes{begin(res), end(res)};
+    std::vector<lfp::uint128_t> expectedPrimes{n0 + 11, n0 + 57, n0 + 69, n0 + 89};
     CHECK_THAT(primes, Equals(expectedPrimes));
 }
 
