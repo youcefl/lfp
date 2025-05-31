@@ -204,7 +204,7 @@ TEST_CASE("Sieve of Eratosthenes - above 2^64 - #2") {
     auto res = lfp::sieve<lfp::int128_t>(n0, n0 + 100, lfp::threads{1});
     CHECK_THAT(res.count(), equals(5));
     std::vector<lfp::int128_t> primes{begin(res), end(res)};
-    std::vector<lpf::int128_t> expectedPrimes{n0 + 33, n0 + 39, n0 + 57, n0 + 79, n0 + 91};
+    std::vector<lfp::int128_t> expectedPrimes{n0 + 33, n0 + 39, n0 + 57, n0 + 79, n0 + 91};
     CHECK_THAT(primes, Equals(expectedPrimes));
 }
 
