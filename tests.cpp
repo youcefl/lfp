@@ -179,13 +179,37 @@ TEST_CASE("Sieve of Eratosthenes - multithreaded sieve") {
     CHECK_THAT(lfp::sieve<int64_t>(uint64_t(641 * 641), uint64_t(8191 * 8191 + 1), lfp::threads{4}).count(), equals(3922190));
 }
 
+// g++-12.2 is unable to compile the following test while g++-13.3 compiles it fine,
+// any call to begin(sieve_results<int128_t>&) or end(sieve_results<int128_t>&) makes the compiler hang...
+// So I deactivated the test unless g++ major >= 13.
+#if LFP_HAS_UINT128
+#  if defined(LFP_DISABLE_TESTS_ABOVE_64_BITS)
+#    pragma message "Tests for ranges above 2^64 are disabled."
+#  else
+
 TEST_CASE("Sieve of Eratosthenes - above 2^64 - #1") {
-    volatile lfp::uint128_t n0 = lfp::uint128_t(1) << 64;
+    lfp::uint128_t n0 = lfp::uint128_t(1) << 64;
     auto res = lfp::sieve<lfp::int128_t>(n0, n0 + 1000, lfp::threads{1});
     CHECK_THAT(res.count(), equals(25));
     std::vector<lfp::int128_t> primes{begin(res), end(res)};
-    CHECK_THAT(primes.front() == ((lfp::uint128_t(1) << 64) + 13), equals(true));
+    CHECK_THAT(primes.front(), equals((lfp::uint128_t(1) << 64) + 13));
+    CHECK_THAT(primes[3], equals((lfp::uint128_t(1) << 64) + 81));
+    CHECK_THAT(primes[21], equals((lfp::uint128_t(1) << 64) + 925));
+    CHECK_THAT(primes.back(), equals((lfp::uint128_t(1) << 64) + 997));
 }
+
+TEST_CASE("Sieve of Eratosthenes - above 2^64 - #2") {
+    lfp::uint128_t p = lfp::uint128_t(4294967311u);
+    auto p2 = p * p, n0 = p2 - 21;
+    auto res = lfp::sieve<lfp::int128_t>(n0, n0 + 100, lfp::threads{1});
+    CHECK_THAT(res.count(), equals(5));
+    std::vector<lfp::int128_t> primes{begin(res), end(res)};
+    std::vector<lpf::int128_t> expectedPrimes{n0 + 33, n0 + 39, n0 + 57, n0 + 79, n0 + 91};
+    CHECK_THAT(primes, Equals(expectedPrimes));
+}
+
+#  endif // LFP_DISABLE_TESTS_ABOVE_64_BITS
+#endif // LFP_HAS_UINT128
 
 TEST_CASE("Sieve of Eratosthenes - misc - #1") {
     CHECK_THAT(lfp::count_primes(uint64_t(1'005'000'000'000),  uint64_t(1'006'250'000'000)), equals(45228966));

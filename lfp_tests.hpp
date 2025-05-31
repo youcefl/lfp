@@ -9,6 +9,15 @@
 #include "catch2/catch_test_macros.hpp"
 #include "catch2/matchers/catch_matchers_all.hpp"
 
+#if LFP_HAS_UINT128 && defined(__GNUC__)
+#  if (__GNUC__ < 13)
+#    define LFP_DISABLE_TESTS_ABOVE_64_BITS
+#  endif
+#  if defined(LFP_FORCE_TESTS_ABOVE_64_BITS) && defined(LFP_DISABLE_TESTS_ABOVE_64_BITS)
+#    undef LFP_DISABLE_TESTS_ABOVE_64_BITS
+#  endif
+#endif // LFP_HAS_UINT128
+
 template <typename T>
 inline std::vector<T>
 primes_by_division(uint64_t a, uint64_t b)
