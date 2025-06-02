@@ -20,17 +20,25 @@ TEST_LIB_LIB_OPT ?= -L$(TEST_LIB_LIB)
 lfp: main.cpp lfp.hpp
 	$(CXX) $(CXFLAGS) -o $@ main.cpp
 
-static_tests: static_tests_1 static_tests_2 static_tests_internals
-	
+checks: tests tests_internals
+	./tests
+	./tests_internals
 
-static_tests_%: static_tests_%.cpp lfp.hpp
+static_tests: static_tests_1.d static_tests_2.d static_tests_internals.d
+
+
+static_tests_%.d: static_tests_%.cpp lfp.hpp
 	$(CXX) $(CXFLAGS) $(SYNTAX_ONLY_FLAG) $(STATIC_TESTS_CXFLAGS) $<
+	touch $@
 
-tests: tests.cpp lfp.hpp
+tests: tests.cpp lfp.hpp lfp_tests.hpp
 	$(CXX) $(CXFLAGS) $(DYNAMIC_TESTS_FLAGS) $(TEST_LIB_INCL_OPT) -o $@ $< $(TEST_LIB_LIB_OPT)  $(TEST_LIBS)
 
-all: static_tests lfp tests
+tests_internals: tests_internals.cpp lfp.hpp lfp_tests.hpp
+	$(CXX) $(CXFLAGS) $(DYNAMIC_TESTS_FLAGS) $(TEST_LIB_INCL_OPT) -o $@ $< $(TEST_LIB_LIB_OPT)  $(TEST_LIBS)
+
+all: static_tests lfp tests tests_internals
 
 clean:
-	rm -f lfp tests
+	rm -f lfp tests tests_internals static_tests*.d
 

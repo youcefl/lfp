@@ -2,10 +2,20 @@
 
 # LFP
 
-## A constexpr implementation of the sieve of Erathostenes
+## A constexpr implementation of the sieve of Eratosthenes
 
-LFP is a constexpr implementation of the sieve of Erathostenes, it consists of a single header file, namely lfp.hpp.
-Note that you will need a C++20 capable compiler to be able to use LFP. 
+LFP is a constexpr implementation of the sieve of Eratosthenes, it consists of a single header file, namely `lfp.hpp`.
+It was born out of my willingness to learn and also give back to the community. After several attempts over the years that did not yield satisfying results, LFP, which started in late 2024, finally achieved my goals thanks to recent C++ language features.
+LFP distinguishes itself by maintaining the following key properties:
+- standard C++, any standard complying compiler should be able to compile the code.
+- constexpr, the user should be able to sieve any "reasonable" range for primes at compile time.
+- header only, the sieve should be usable by including a single header file.
+- ability to use user defined arithmetic types provided that they satisfy a given set of conditions.
+- ability to sieve above 2^64.
+
+To maximize adoption I limited the implementation to C++20 features (developement was done using g++ 12.2 with `-std=c++20`).
+To ensure this remained a fully original work, I deliberately avoided looking into existing implementations. The only external assistance came from discussions with DeepSeek and ChatGPT.
+
 
 Here are some examples of use:
 
@@ -31,7 +41,7 @@ static_assert(lfp::count_primes(0, 100'000) == 9592);
 
 
 // Sieve range [0, 10^7) using up to 8 concurrent threads and put the resulting primes in a vector
-auto sieveRes = sieve<int32_t>(0, 10000000, lfp::Threads{8});
+auto sieveRes = lfp::sieve<int32_t>(0, 10000000, lfp::threads{8});
 std::vector<int32_t> primes;
 primes.reserve(sieveRes.count());
 for(auto p : sieveRes) {
@@ -39,16 +49,44 @@ for(auto p : sieveRes) {
 }
 
 // shorter version:
-auto sieveRes = sieve<int32_t>(0, 10000000, lfp::Threads{8});
+auto sieveRes = lfp::sieve<int32_t>(0, 10000000, lfp::threads{8});
 auto rng = sieveRes.range();
 std::vector<int32_t> primes{rng.begin(), rng.end()};
 
 // Sieve range [10^8 and 10^8+10^7) using the default number of concurrent threads, then
 // iterate over the resulting primes
-for(auto p : sieve<uint32_t>(100000000, 110000000, lfp::Threads{})) {
+for(auto p : lfp::sieve<uint32_t>(100000000, 110000000, lfp::threads{})) {
+    ....
 }
 
 ```
+
+## Testing and benchmarking
+
+To benchmark the library and/or run the existing tests download the repository and run make.
+To compile the command line tool:
+```
+$ cd lfp
+$ make lfp
+```
+The lfp executable can be used to sieve a range [n_0, n_1[ for primes, use option -t/--threads to specify a number of threads and -p/--primes to output the primes found e.g.
+```
+# Sieve range [0, 10^10[ using up to 8 concurrent threads and output the number of primes found in the range
+$ lfp -t 8 0 10000000000
+
+# Output all primes in the range [100000, 101000[
+$ lfp -p 100000 101000
+```
+To run the existing tests you will need to have [Catch2](https://github.com/catchorg/Catch2) installed (note that it is included as a submodule of the repository), once install simply run:
+```
+$ make checks
+```
+The tests are separated in two categories: the dynamic tests and the static tests, the dynamic ones are run by `make checks`, if your compiler supports it you can also run the static tests, which validate the sieve at compile time, by typing:
+```
+make static_tests
+```
+Note that the static tests do not need Catch2.
+
 
 ## Public API
 
@@ -59,31 +97,33 @@ The public API is as follows:
 namespace lfp {
 
 // Forward declarations
-struct Threads;
-template <typename T> class SieveResults;
+struct threads;
+template <typename T, typename U> class sieve_results;
+template <typename T> struct to_unsigned;
+template <typename T> using to_unsigned_t = typename to_unsigned<T>::type;
 
 /// Returns the result of sieving the range [n0, n1).
-/// T is the type of the resuling prime numbers
-template <typename T, typename U>
-constexpr SieveResults<T> sieve(U n0, U n1);
+/// ResultInt is the type of the resuling prime numbers
+template <typename ResultInt, typename Int>
+constexpr sieve_results<ResultInt, to_unsigned_t<Int>> sieve(Int n0, Int n1);
 
 /// Returns the result of sieving the range [n0, n1).
 /// The sieving is performed using at most threads.count() concurrent threads.
-template <typename T, typename U>
-SieveResults<T> sieve(U n0, U n1, Threads const & threads);
+template <typename ResultInt, typename Int>
+sieve_results<ResultInt, to_unsigned_t<Int>> sieve(Int n0, Int n1, threads const & threads);
 
 /// Returns a vector containing the prime numbers in range [n0, n1)
-template <typename T, typename U>
-constexpr std::vector<T> sieve_to_vector(U n0, U n1);
+template <typename ResultInt, typename Int>
+constexpr std::vector<ResultInt> sieve_to_vector(Int n0, Int n1);
 
 /// Returns the number of prime numbers in range [n0, n1)
-template <typename U>
-std::size_t count_primes(U n0, U n1);
+template <typename Int>
+constexpr std::size_t count_primes(Int n0, Int n1);
 
 /// Returns the number of prime numbers in range [n0, n1)
 /// the sieving is performed using at most threads.count() ooncurrent threads.
-template <typename U>
-std::size_t count_primes(U n0, U n1, Threads const & threads);
+template <typename Int>
+std::size_t count_primes(Int n0, Int n1, threads const & threads);
 
 /// @struct Holding concurrency information
 struct threads
@@ -95,32 +135,39 @@ struct threads
     explicit threads(unsigned int c);
     /// Returns the maximum number of concurrent threads to use during sieving.
     unsigned int count() const;
-// ...Private part omitted...
+private:
+    unsigned int count_;
+    static unsigned int default_count();
 };
 
 /// Class holding sieve results
-template<typename T>
-class SieveResults
+template<typename T, typename U>
+class sieve_results
 {
+    // ... Private part omitted ...
 public:
-    using range_type = ....;
-    constexpr SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap>&& bitmaps);
     /// Returns a range suitable for iterating over the prime numbers resulting from the sieve
     constexpr auto range();
+    /// Implicit cast to a range
     constexpr operator range_type ();
     /// Returns the number of prime numbers found by the sieve.
     constexpr std::size_t count();
 
-    friend constexpr auto begin(SieveResults & rng);
-    friend constexpr auto end(SieveResults & rng);
-// ... Private part omitted...
+    friend constexpr auto begin(sieve_results & rng);
+    friend constexpr auto end(sieve_results & rng);
 };
 
 } // namespace lfp
 
 ```
+## Validation
 
-
+LFP’s results were rigorously verified through:
+- Dynamic unit tests: Runtime checks across edge cases and arbitrary ranges.
+- Static assertions: Compile-time validation of constexpr outputs.
+- Cross-referencing:
+    - For ranges below 2<sup>64</sup>: automated comparison against primesieve and WolframAlpha.
+    - For ranges above 2<sup>64</sup>: manual verification using WolframAlpha as an authoritative source.
 
 ## Performances
 
@@ -137,15 +184,73 @@ This sieve leverages several optimization techniques for performance and scalabi
 The following table gives an idea of the performances to expect from the sieve (all durations are in seconds):
 
 | Range \ Threads | 1 | 4 | 8 | 16 | 32 | 48 | 64 | Number of primes |
-|-----------------|---|---|---|----|----|----|----|------------------|
-| $\left[0, 10^{9}\right[$ | 0.228 | 0.079 | 0.050 | 0.035 | 0.034 | 0.036 | 0.037 | **50847534** |
-| $\left[0, 2^{32}-1\right[$ | 1.077 | 0.362 | 0.224 | 0.146 | 0.104 | 0.092 | 0.088 | **203280221** |
-| $\left[10^{12}, 10^{12}+10^{10}\right[$ | 4.421 | 1.610 | 1.058 | 0.741 | 0.530 | 0.453 | 0.421 | **361840208** |
-| $\left[10^{15}, 10^{15}+10^{10}\right[$ | 16.800 | 6.148 | 4.052 | 2.878 | 2.308 | 1.983 | 1.888 | **289531946** |
-| $\left[10^{18}, 10^{18}+10^{10}\right[$ | 69.846 | 25.593 | 16.562 | 11.224 | 7.947 | 6.384 | 6.199 | **241272176** |
-| $\left[2^{64}-10^{10}, 2^{64}-1\right[$ | 200.867 | 71.364 | 45.911 | 30.781 | 21.050 | 16.361 | 16.497 | **225402976** |
-
+|-----------------|---|---|---|---|---|---|---|-------------------|
+| $\left[0, 10^{9}\right[$ | .280 | .096 | .062 | .042 | .035 | .037 | .037 | **50847534** |
+| $\left[0, 2^{32}-1\right[$ | 1.301 | .444 | .276 | .180 | .125 | .110 | .103 | **203280221** |
+| $\left[10^{12}, 10^{12}+10^{10}\right[$ | 5.648 | 2.061 | 1.341 | .926 | .655 | .552 | .504 | **361840208** |
+| $\left[10^{15}, 10^{15}+10^{10}\right[$ | 18.091 | 6.614 | 4.338 | 3.057 | 2.447 | 2.061 | 1.959 | **289531946** |
+| $\left[10^{18}, 10^{18}+10^{10}\right[$ | 72.772 | 26.614 | 17.191 | 11.681 | 8.297 | 6.601 | 6.372 | **241272176** |
+| $\left[2^{64}-10^{10}, 2^{64}-1\right[$ | 208.423 | 74.847 | 48.160 | 32.267 | 22.064 | 17.044 | 17.016 | **225402976** |
 
 These timings were measured on an AMD EPYC 9R14, the compilation flags used are "-std=c++20 -O3 -march=native -mtune=native -DNDEBUG" (OS: Debian 12, compiler: g++ version 12.2).
 
+Performance optimization was halted once LFP reached usable speeds. While it cannot match primesieve (a highly optimized tool developed over 15 years), surpassing it was never the objective—LFP focuses on compile-time flexibility and standards compliance.
 
+## Sieving above ${2}^{64}$
+
+LFP supports prime generation beyond 64-bit limits by accepting arbitrary unsigned integer types (e.g., `unsigned __int128` or user-provided big-integer types). When available, `unsigned __int128` is automatically enabled, allowing direct sieving above $2^{64}$. Example: to count primes in $[2^{72}, 2^{72} + 10^{10}[$ using 48 threads:
+```
+$ ./lfp -t 48 4722366482869645213696 4722366482879645213696
+```
+### Validation
+Some verification were done through:
+ - WolframAlpha Cross-Checks: manual validation of arbitrary ranges e.g. $[2^{70}, 2^{70} + 10^3[$:
+```
+~$ ./lfp -t 4 -p 1180591620717411303424 1180591620717411304424
+The number of prime numbers in range [1180591620717411303424, 1180591620717411304424[ is 23.
+Took 50.6176s
+Primes:
+1180591620717411303449
+1180591620717411303491
+1180591620717411303503
+1180591620717411303529
+1180591620717411303539
+1180591620717411303613
+1180591620717411303619
+1180591620717411303659
+1180591620717411303727
+1180591620717411303763
+1180591620717411303809
+1180591620717411303829
+1180591620717411303839
+1180591620717411303883
+1180591620717411303911
+1180591620717411303949
+1180591620717411304069
+1180591620717411304109
+1180591620717411304117
+1180591620717411304151
+1180591620717411304223
+1180591620717411304313
+1180591620717411304393
+```
+- Targeted Stress Tests:
+Ranges centered on $p^2$ and $p \cdot q$ (where $q$ is the smallest prime $> p$) for $p > 2^{32}$.<br>
+Purpose: Ensures correct crossing-out of multiples for large base primes.<br>
+Example: Verified $p^2 = 18446744202558570721$ for $p = 2^{32} + 15$ (a 33-bit prime):<br>
+```
+$ ./lfp -p 18446744202558570700 18446744202558570800
+The number of prime numbers in range [18446744202558570700, 18446744202558570800[ is 5.
+Took 6.31544s
+Primes:
+18446744202558570733
+18446744202558570739
+18446744202558570757
+18446744202558570779
+18446744202558570791
+```
+
+### Performance Notes
+
+Trade-offs: Operations on large integers are inherently slower due to arbitrary-precision arithmetic.<br>
+Parallelism: Multi-threading (-t N) mitigates latency for very large ranges.

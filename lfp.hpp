@@ -27,36 +27,39 @@
 #include <variant>
 #include <cassert>
 #include <span>
+#include <iomanip>
 
 
 namespace lfp {
 
 // Forward declarations
 struct threads;
-template <typename T> class SieveResults;
+template <typename T, typename U> class sieve_results;
+template <typename T> struct to_unsigned;
+template <typename T> using to_unsigned_t = typename to_unsigned<T>::type;
 
 /// Returns the result of sieving the range [n0, n1).
-/// T is the type of the resuling prime numbers
-template <typename T, typename U>
-constexpr SieveResults<T> sieve(U n0, U n1);
+/// ResultInt is the type of the resuling prime numbers
+template <typename ResultInt, typename Int>
+constexpr sieve_results<ResultInt, to_unsigned_t<Int>> sieve(Int n0, Int n1);
 
 /// Returns the result of sieving the range [n0, n1).
 /// The sieving is performed using at most threads.count() concurrent threads.
-template <typename T, typename U>
-SieveResults<T> sieve(U n0, U n1, threads const & threads);
+template <typename ResultInt, typename Int>
+sieve_results<ResultInt, to_unsigned_t<Int>> sieve(Int n0, Int n1, threads const & threads);
 
 /// Returns a vector containing the prime numbers in range [n0, n1)
-template <typename T, typename U>
-constexpr std::vector<T> sieve_to_vector(U n0, U n1);
+template <typename ResultInt, typename Int>
+constexpr std::vector<ResultInt> sieve_to_vector(Int n0, Int n1);
 
 /// Returns the number of prime numbers in range [n0, n1)
-template <typename U>
-constexpr std::size_t count_primes(U n0, U n1);
+template <typename Int>
+constexpr std::size_t count_primes(Int n0, Int n1);
 
 /// Returns the number of prime numbers in range [n0, n1)
 /// the sieving is performed using at most threads.count() ooncurrent threads.
-template <typename U>
-std::size_t count_primes(U n0, U n1, threads const & threads);
+template <typename Int>
+std::size_t count_primes(Int n0, Int n1, threads const & threads);
 
 /// @struct Holding concurrency information
 struct threads
@@ -75,7 +78,13 @@ private:
 
 } // namespace lfp
 
-
+#if !defined(LFP_HAS_UINT128)
+#  if defined(__SIZEOF_INT128__)
+#    define LFP_HAS_UINT128 1
+#  else
+#    define LFP_HAS_UINT128 0
+#  endif
+#endif
 
 #ifdef NDEBUG
 # define LFP_ASSERT(...) ((void)0);
@@ -120,8 +129,120 @@ private:
 #endif
 
 
-namespace lfp { 
+namespace lfp {
+
+
+template <typename T>
+struct to_unsigned
+{
+    using type = std::make_unsigned_t<T>;
+};
+
+#if LFP_HAS_UINT128
+
+using int128_t = __int128;
+using uint128_t = unsigned __int128; 
+template <> struct to_unsigned<int128_t> { using type = uint128_t; };
+template <> struct to_unsigned<uint128_t> { using type = uint128_t; };
+
+inline std::ostream & operator<<(std::ostream & out, uint128_t u128)
+{
+    char buf[64];
+    auto ptr = &buf[std::size(buf) - 1];
+    *ptr = '\0';
+    do {
+	*--ptr = '0' + (u128 % 10);
+	u128 /= 10;
+    } while(u128);
+    return out << ptr;
+}
+
+inline std::ostream & operator<<(std::ostream & out, int128_t i128)
+{
+    if(i128 < 0) {
+	out << '-';
+	return out << uint128_t(-i128);
+    }
+    return out << uint128_t(i128);
+}
+
+inline uint128_t uint128_from_string(char const * str)
+{
+    uint128_t result = 0;
+    while(*str) {
+	if((*str < '0') || (*str > '9')) {
+	    break;
+	}
+	result *= 10;
+	result += *str - '0';
+	++str;
+    }
+    return result;
+}
+
+inline auto to_string(uint128_t u)
+{
+    auto const ten_19 = uint128_t(10'000'000'000'000'000'000ull);
+    uint64_t digits[3] = {};
+    int i  = 2;
+    while(u) {
+        digits[i--] = u % ten_19;
+        u /= ten_19;
+    }
+    for(i = 0; (i < 3) && !digits[i]; ++i);
+    if(i == 3) {
+        return std::string{"0"};
+    }
+    bool pad = false;
+    std::ostringstream out;
+    for(; i < 3; ++i) {
+        if(!pad) {
+            out << digits[i];
+        } else {
+            out << std::setw(19) << std::setfill('0') << digits[i];
+        }
+        pad = pad || digits[i];
+    }
+    return out.str();
+}
+
+#endif // LFP_HAS_UINT128
+
 namespace details {
+
+template <typename UInt>
+constexpr int bit_width(UInt u)
+{
+    static_assert(std::is_unsigned_v<UInt>
+#if LFP_HAS_UINT128
+		    || std::is_same_v<UInt, unsigned __int128>
+#endif
+		    , "Unsigned types only");
+    static_assert(std::numeric_limits<UInt>::digits <= 128, "Values larger than 128 bits not supported");
+
+    if constexpr(std::numeric_limits<UInt>::digits > std::numeric_limits<std::uint64_t>::digits) {
+        if(u == UInt{}) {
+	    return 0;
+        }
+	constexpr int shift = std::numeric_limits<std::uint64_t>::digits;
+	auto hi = static_cast<std::uint64_t>(u >> shift);
+	return hi ? (shift + std::bit_width(hi)) : std::bit_width(static_cast<std::uint64_t>(u));
+    } else {
+	return std::bit_width(u);
+    }
+}
+
+/// Returns gcd(u, 30)
+/// Why? Because std::gcd does not support unsigned __int128 and because I need a gcd function
+/// only for asserting that gcd(x, 30) == 1 in various places.
+template <typename UInt>
+constexpr UInt gcd_30(UInt u) noexcept
+{
+    constexpr UInt res[30] = {30, 1, 2, 3, 2, 5, 6, 1, 2, 3, 10, 1, 6, 1, 2,
+                              15, 2, 1, 6, 1, 10, 3, 2, 1, 6, 5, 2, 3, 2, 1};
+    return res[u % 30];
+}
+
 
 class log_impl;
 
@@ -228,6 +349,9 @@ inline constexpr std::size_t noffs = (std::numeric_limits<std::size_t>::max)();
 /// True if and only if T is one of the types listed after it
 template <typename T, typename... Rest>
 inline constexpr bool is_one_of_v = sizeof...(Rest) && ((std::is_same_v<T, Rest> || ...));
+
+template <typename T>
+using make_unsigned_t = std::make_unsigned_t<T>;
 
 /// Returns the address of an object as an integer value
 template <typename T>
@@ -442,8 +566,8 @@ Ret compute_lt_coprime(U n1)
 template <typename U, typename V>
 constexpr std::size_t index_of(U m, uint8_t mmod30Idx,  V m0)
 {
-    LFP_ASSERT((m >= m0) && (std::gcd(m, 30) == 1)
-	      && (mmod30Idx == cp30res_to_idx(m % 30))  && (std::gcd(m0, 30) == 1));
+    LFP_ASSERT((m >= m0) && (gcd_30(m) == 1)
+	      && (mmod30Idx == cp30res_to_idx(m % 30))  && (gcd_30(m0) == 1));
 
     auto m0_idx = cp30res_to_idx(m0 % 30);
     return (m - m0) / 30 * 8 + ((mmod30Idx >= m0_idx) ? mmod30Idx - m0_idx : 8 + mmod30Idx - m0_idx);
@@ -454,7 +578,7 @@ constexpr std::size_t index_of(U m, uint8_t mmod30Idx,  V m0)
 template <typename U, typename V>
 constexpr std::size_t index_of(U m, V m0)
 {
-    LFP_ASSERT((m >= m0) && (std::gcd(m, 30) == 1) && (std::gcd(m0, 30) == 1));
+    LFP_ASSERT((m >= m0) && (gcd_30(m) == 1) && (gcd_30(m) == 1));
 
     auto m_idx = cp30res_to_idx(m % 30);
     auto m0_idx = cp30res_to_idx(m0 % 30);
@@ -466,7 +590,7 @@ constexpr std::size_t index_of(U m, V m0)
 template <typename V>
 constexpr V value_at(V n0, std::size_t offs)
 {
-    LFP_ASSERT(std::gcd(n0, 30) == 1);
+    LFP_ASSERT(gcd_30(n0) == 1);
 
     auto n0Idx = cp30res_to_idx(n0 % 30);
     auto nxIdx = (n0Idx + offs) % 8;
@@ -672,8 +796,9 @@ public:
     /// @pre idx < size()
     constexpr U word_at(std::size_t idx) const;
     /// Returns the offset in the bitmask corresponding to the composite c
-    /// @pre c is coprime to 30 and of the form p^2 + 2kp (k being an integer >= 0).
-    constexpr auto offset(std::size_t c) const;
+    /// @pre c is coprime to 30 and of the form p^2 + 2kp (k being an integer >= 0) where p = prime().
+    template <typename UInt>
+    constexpr auto offset(UInt c) const;
 
 private:
     static constexpr U word_at(U const * data, std::size_t idx);
@@ -724,8 +849,9 @@ bitmask_impl<U, P, UseDictionary, Alignment>::word_at(std::size_t idx) const
 
 
 template <typename U, std::size_t P, use_dictionary_t UseDictionary, std::size_t Alignment>
+template <typename UInt>
 constexpr auto
-bitmask_impl<U, P, UseDictionary, Alignment>::offset(std::size_t c) const
+bitmask_impl<U, P, UseDictionary, Alignment>::offset(UInt c) const
 {
     return offs_[cp30res_to_idx(c % 30)];
 }
@@ -875,7 +1001,6 @@ constexpr auto bitmask_pack<U, SmallPrimes...>::size()
 template <typename U, uint8_t... SmallPrimes>
 constexpr std::string_view bitmask_pack<U, SmallPrimes...>::primes_as_string()
 {
-//    return	std::string_view{str_primes_.cbegin(), std::find(str_primes_.cbegin(), str_primes_.cend(), '\0')};
     return str_primes_view_;
 }
 
@@ -1095,27 +1220,28 @@ bucket<PrimeT>::compute_offsets(V n0, V ne, std::size_t bmpSize)
 }
 
 
-template <typename T> class PrimesIterator;
+template <typename T, typename U> class primes_iterator;
 
-
-class Bitmap
+template <typename ValueT, typename LimbT>
+class bitmap_impl
 {
 public:
-    using value_type = uint64_t; // temporary, will become U when the class becomes a template
+    using value_type = ValueT;
+    using limb_type = LimbT;
 
-    constexpr Bitmap();
-    explicit constexpr Bitmap(uint64_t n0, std::size_t size);
-    constexpr void assign(uint64_t n0, std::size_t size);
+    constexpr bitmap_impl();
+    constexpr bitmap_impl(value_type n0, std::size_t size);
+    constexpr void assign(value_type n0, std::size_t size);
     constexpr std::size_t size() const;
-    constexpr std::size_t indexOf(uint64_t val) const;
+    constexpr std::size_t index_of(value_type val) const;
     constexpr value_type first_value() const;
     constexpr value_type last_value() const;
     constexpr value_type value_at(std::size_t idx) const;
     constexpr void reset(std::size_t index);
     template <std::size_t Prime>
-    constexpr void apply(bitmask_impl<uint64_t, Prime> const & mask);
+    constexpr void apply(bitmask_impl<LimbT, Prime> const & mask);
     template <uint8_t... Primes>
-    constexpr void apply(bitmask_pack<uint64_t, Primes...> const & maskPack);
+    constexpr void apply(bitmask_pack<LimbT, Primes...> const & maskPack);
     template <typename PrimeT>
     constexpr void apply_and_clear(bucket<PrimeT> & bkt);
     template <typename PrimeT>
@@ -1131,17 +1257,17 @@ private:
     static constexpr value_type value_at_impl(value_type n0, std::size_t offs);
 
     struct mask_application_data {
-        std::size_t first_composite_;
+        value_type first_composite_;
         std::size_t first_composite_index_;
         std::size_t current_mask_offset_;
         std::size_t current_bitmap_index_;
     };
     template <std::size_t Prime>
-    constexpr mask_application_data compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk) const;
+    constexpr mask_application_data compute_mask_application_data(bitmask_impl<LimbT, Prime> const & bmk) const;
     template <std::size_t Prime>
-    constexpr void apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset);
+    constexpr void apply(bitmask_impl<LimbT, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset);
 
-    std::vector<uint64_t, allocator<uint64_t, 64>> vec_;
+    std::vector<LimbT, allocator<LimbT, 64>> vec_;
     std::size_t size_;
     /// First value
     value_type n0_;
@@ -1155,20 +1281,22 @@ private:
     using NumLim = std::numeric_limits<ElemType>;
     static constexpr std::size_t digits_{std::numeric_limits<ElemType>::digits};
 
-    template <typename T> friend class PrimesIterator;
+    template <typename T, typename U> friend class primes_iterator;
 };
 
+template <typename ValueT, typename LimbT>
 constexpr
-Bitmap::Bitmap()
+bitmap_impl<ValueT, LimbT>::bitmap_impl()
   : size_(0)
   , n0_(0)
   , ne_(0)
 {}
 
+template <typename ValueT, typename LimbT>
 constexpr
-Bitmap::Bitmap(uint64_t n0, std::size_t size)
+bitmap_impl<ValueT, LimbT>::bitmap_impl(ValueT n0, std::size_t size)
   : vec_((size + NumLim::digits - 1)/NumLim::digits,
-            ~decltype(vec_)::value_type{})
+            ~ElemType{})
   , size_(size)
   , n0_(n0 + d_[n0 % 30])
   , ne_(size_ ? value_at_impl(n0_, size_ - 1) : n0_)
@@ -1182,14 +1310,15 @@ Bitmap::Bitmap(uint64_t n0, std::size_t size)
     LFP_LOG("constructed bitmap " << obj_addr(this) << ", [" << n0_ << ", " << ne_ << "], size = " << size_);
 }
 
+template <typename ValueT, typename LimbT>
 constexpr
 void
-Bitmap::assign(uint64_t n0, std::size_t size)
+bitmap_impl<ValueT, LimbT>::assign(ValueT n0, std::size_t size)
 {
     LFP_LOG("assigning bitmap " << obj_addr(this));
 
     vec_.assign((size + NumLim::digits - 1)/NumLim::digits,
-            ~decltype(vec_)::value_type{});
+            ~ElemType{});
     size_ = size;
     n0_ = n0 + d_[n0 % 30];
     ne_ = size_ ? value_at_impl(n0_, size_ - 1) : n0_;
@@ -1201,69 +1330,78 @@ Bitmap::assign(uint64_t n0, std::size_t size)
     LFP_LOG("assigned bitmap " << obj_addr(this) << ": [" << n0_ << ", " << ne_ << "], size = " << size_);
 }
 
+template <typename ValueT, typename LimbT>
 constexpr
 std::size_t
-Bitmap::size() const
+bitmap_impl<ValueT, LimbT>::size() const
 {
     return size_;
 }
 
+template <typename ValueT, typename LimbT>
 constexpr
 std::size_t
-Bitmap::indexOf(value_type val) const
+bitmap_impl<ValueT, LimbT>::index_of(value_type val) const
 {
-    return index_of(val, n0_);
+    return details::index_of(val, n0_);
 }
 
+template <typename ValueT, typename LimbT>
 constexpr
-Bitmap::value_type
-Bitmap::first_value() const
+bitmap_impl<ValueT, LimbT>::value_type
+bitmap_impl<ValueT, LimbT>::first_value() const
 {
     return n0_;
 }
 
+template <typename ValueT, typename LimbT>
 constexpr
-Bitmap::value_type
-Bitmap::last_value() const
+bitmap_impl<ValueT, LimbT>::value_type
+bitmap_impl<ValueT, LimbT>::last_value() const
 {
     return ne_;
 }
 
+template <typename ValueT, typename LimbT>
 constexpr
-Bitmap::value_type
-Bitmap::value_at(std::size_t idx) const
+bitmap_impl<ValueT, LimbT>::value_type
+bitmap_impl<ValueT, LimbT>::value_at(std::size_t idx) const
 {
     return value_at_impl(n0_, idx);
 }
 
+template <typename ValueT, typename LimbT>
 constexpr
-Bitmap::value_type
-Bitmap::value_at_impl(value_type n0, size_t idx)
+bitmap_impl<ValueT, LimbT>::value_type
+bitmap_impl<ValueT, LimbT>::value_at_impl(value_type n0, size_t idx)
 {
     auto n0res = n0 % 30;
     auto nxres = residues_[(n0res * 4 / 15 + idx) % 8]; 
     return n0 + (idx / 8) * 30 + ((nxres >= n0res) ? nxres - n0res : 30 + nxres - n0res );
 }
 
+template <typename ValueT, typename LimbT>
 constexpr
 void
-Bitmap::reset(std::size_t index)
+bitmap_impl<ValueT, LimbT>::reset(std::size_t index)
 {
     vec_[index / NumLim::digits] &= ~(ElemType{1} << (NumLim::digits - 1 - index % NumLim::digits));
 }
 
+template <typename ValueT, typename LimbT>
 constexpr
 uint64_t
-Bitmap::popcount() const
+bitmap_impl<ValueT, LimbT>::popcount() const
 {
     return std::transform_reduce(std::begin(vec_), std::end(vec_), 0, std::plus{},
 		    [](auto v){ return std::popcount(v);});
 }
 
+template <typename ValueT, typename LimbT>
 template <typename Func>
 constexpr
 void
-Bitmap::foreach_setbit(Func ff) const
+bitmap_impl<ValueT, LimbT>::foreach_setbit(Func ff) const
 {
     auto k = 0;
     auto c = n0_;
@@ -1276,59 +1414,27 @@ Bitmap::foreach_setbit(Func ff) const
     }
 }
 
+template <typename ValueT, typename LimbT>
 template <typename Int>
 constexpr
 std::size_t
-Bitmap::indexInResidues(Int x)
+bitmap_impl<ValueT, LimbT>::indexInResidues(Int x)
 {
     return std::distance(std::begin(residues_), std::find(std::begin(residues_), std::end(residues_), x % 30));
 }
 
 
-void
-Bitmap::check() const
-{
-    int rez[] = {1,7,11,13,17,19,23,29};
-    int d[] = {6,4,2,4,2,4,6,2};
-    auto k = 0;
-    auto c = n0_;
-    for(auto i = std::distance(std::begin(rez), std::find(std::begin(rez), std::end(rez),n0_%30));
-        k < size_ ;
-        c += d[i], i = (i+1)%8, ++k) {
-        bool is_prime = true;
-        for(auto p : {2,3,5,7,11,13,17,19,21,23,29, 31, 37, 41,
-                43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89,
-                97, 101, 103, 107, 109, 113, 127, 131, 137,
-                139, 149, 151, 157, 163, 167, 173, 179, 181,
-                191, 193, 197, 199, 211, 223, 227, 229, 233,
-                239, 241, 251}) {
-            if((c != p) && ((c % p) == 0)) {
-                is_prime = false;
-                break;
-            }
-            if(p*p > c) {
-                break;
-            }
-        }
-        if(k != indexOf(c)) {
-            std::cout << "bad index: " << k << " for " << c << std::endl;
-        }
-        if(is_prime != (at(k) != 0)) {
-            std::cout << "is_prime=" << is_prime << ", " << (at(k) != 0) << " | ";
-            std::cout << c << " is" << (is_prime ? "" : " not") << " a prime." << std::endl;
-        }
-    }
-}
-
+template <typename ValueT, typename LimbT>
 constexpr
-uint8_t Bitmap::at(std::size_t index) const
+uint8_t bitmap_impl<ValueT, LimbT>::at(std::size_t index) const
 {
     return (vec_[index / NumLim::digits] >> (NumLim::digits - 1 - index % NumLim::digits)) & 1;
 }
 
+template <typename ValueT, typename LimbT>
 template <std::size_t Prime>
-constexpr Bitmap::mask_application_data
-Bitmap::compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk) const
+constexpr bitmap_impl<ValueT, LimbT>::mask_application_data
+bitmap_impl<ValueT, LimbT>::compute_mask_application_data(bitmask_impl<LimbT, Prime> const & bmk) const
 {
     mask_application_data mappData{0, nopos_, nopos_, nopos_};
 
@@ -1337,7 +1443,7 @@ Bitmap::compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk)
     if(!c) {
         return mappData;
     }
-    auto cOffs = indexOf(c);
+    auto cOffs = index_of(c);
     if(cOffs >= size_) {
         return mappData;
     }
@@ -1349,9 +1455,10 @@ Bitmap::compute_mask_application_data(bitmask_impl<uint64_t, Prime> const & bmk)
 }
 
 
+template <typename ValueT, typename LimbT>
 template <std::size_t Prime>
 constexpr
-void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk)
+void bitmap_impl<ValueT, LimbT>::apply(bitmask_impl<LimbT, Prime> const & bmk)
 {
     LFP_LOG("bitmap " << obj_addr(this) << ": about to apply precomputed bitmask (prime = " << bmk.prime() << ")");
 
@@ -1362,9 +1469,10 @@ void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk)
 }
 
 
+template <typename ValueT, typename LimbT>
 template <std::size_t Prime>
 constexpr
-void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset)
+void bitmap_impl<ValueT, LimbT>::apply(bitmask_impl<LimbT, Prime> const & bmk, mask_application_data & mappData, std::size_t endOffset)
 {
     using U = uint64_t; //@todo: remove this once the class is templated
     auto cOffs = mappData.first_composite_index_;
@@ -1411,16 +1519,17 @@ void Bitmap::apply(bitmask_impl<uint64_t, Prime> const & bmk, mask_application_d
 }
 
 
+template <typename ValueT, typename LimbT>
 template <uint8_t... Primes>
 constexpr
-void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
+void bitmap_impl<ValueT, LimbT>::apply(bitmask_pack<LimbT, Primes...> const & maskPack)
 {
     LFP_LOG_S("bitmap " << obj_addr(this) << ": about to apply pack of bitmasks for primes {"
 		        << maskPack.primes_as_string() << "}",
 	      "bitmap " << obj_addr(this) << ": pack of bitmasks applied");
 
     constexpr auto masksCount = maskPack.size();
-    // We apply each mask individualy until we reach an offset where they can be applied
+    // We apply each mask individually until we reach an offset where they can be applied
     // all together.
     mask_application_data mappData[masksCount];
     [&]<std::size_t... I>(std::index_sequence<I...>){
@@ -1466,18 +1575,20 @@ void Bitmap::apply(bitmask_pack<uint64_t, Primes...> const & maskPack)
     }
 }
 
+template <typename ValueT, typename LimbT>
 template <typename PrimeT>
 constexpr void
-Bitmap::apply_and_clear(bucket<PrimeT> & bkt)
+bitmap_impl<ValueT, LimbT>::apply_and_clear(bucket<PrimeT> & bkt)
 {
     apply(bkt);
     bkt.clear();
 }
 
 
+template <typename ValueT, typename LimbT>
 template <typename PrimeT>
 constexpr void
-Bitmap::apply(bucket<PrimeT> & bkt)
+bitmap_impl<ValueT, LimbT>::apply(bucket<PrimeT> & bkt)
 {
     /// @todo: Do we really have to have this static assert? It seems logical because
     /// base primes ought to be smaller than the ones being hunted...
@@ -1502,10 +1613,13 @@ Bitmap::apply(bucket<PrimeT> & bkt)
     LFP_LOG("bitmap " << obj_addr(this) << ": bucket " << obj_addr(&bkt) << " applied");
 }
 
+template <typename ValueT>
+using bitmap = bitmap_impl<ValueT, std::uint64_t>;
 
+template <typename ValueT>
 struct sieve_data
 {
-   Bitmap * bitmap_ = nullptr;
+   bitmap<ValueT> * bitmap_ = nullptr;
    bool have_to_initialize_bitmap_ = true;
    bool have_to_ignore_bucketable_primes_ = false;
 };
@@ -1513,7 +1627,7 @@ struct sieve_data
 
 template <typename T, typename BP, typename U, typename Func>
 constexpr auto 
-inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievdat)
+inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data<U> const & sievdat)
 {
     auto const & tinyPrimes = primesBelowSix<T>;
     if((n0 >= n1) || (n0 > std::numeric_limits<U>::max() - 2)) {
@@ -1552,11 +1666,11 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
 			    | std::views::drop_while([](auto p) { return p < 7; }) 
 			    | std::views::take_while([](auto p) { return p < smallPrimesThreshold; })
 			    )) {
-        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
+        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::limb_type,
                  7, 11, 13, 17, 19, 23, 29, 31> bitmasks_1;
-        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
+        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::limb_type,
                  37, 41, 43, 47, 53, 59, 61, 67> bitmasks_2;
-        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::value_type,
+        bitmask_pack<typename std::remove_cvref_t<decltype(bmp)>::limb_type,
                  71, 73, 79, 83, 89, 97, 101, lastSmallPrime> bitmasks_3;
         bmp.apply(bitmasks_1);
         bmp.apply(bitmasks_2);
@@ -1567,10 +1681,11 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
 		    | std::views::drop_while([smallPrimesThreshold](auto p) { return p < smallPrimesThreshold; })
 		    | std::views::take_while([&sievdat](auto p){
 			    return !(sievdat.have_to_ignore_bucketable_primes_ && (p >= bucketed_primes_threshold())); })) {
+        if(p > ne / p) { // test it this way to avoid possible overflow with p^2
+	    break;
+	}
         auto p2 = U{p} * p;
-        if(p2 > ne) {
-            break;
-        }
+
         // Early continue if p has no multiple in the current segment. The first condition is to avoid paying the cost of
         // a modulo when there is a higher probability of p having a multiple in the current segment.
         // This doesn't worsen things too much in the lower ranges while improving the performances in the higher ranges.
@@ -1587,7 +1702,7 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
         std::size_t startOffs{noffs};
         std::array<std::size_t, 7> offsets;
         auto offsetsCount = compute_offsets(startOffs, offsets, p, n0, ne, c);
-        
+
         if(startOffs == noffs) {
             // No multiple of p greater or equal to  p^2 (and coprime to 30) in the current segment
             continue;
@@ -1620,9 +1735,9 @@ inner_sieve(BP const & basePrimes, U n0, U n1, Func ff, sieve_data const & sievd
 }
 
 
-template <typename T, typename It = decltype(std::array<T,3>{}.cbegin())>
+template <typename T, typename U, typename It = decltype(std::array<T,3>{}.cbegin())>
 constexpr std::vector<T>
-collectSieveResults(It first, It last, Bitmap const * bmp)
+collectSieveResults(It first, It last, bitmap<U> const * bmp)
 {
     auto count = std::distance(first, last) + (bmp ? bmp->popcount() : 0);
     if(!count) {
@@ -1639,8 +1754,8 @@ collectSieveResults(It first, It last, Bitmap const * bmp)
 }
 
 // Proxy iterator iterating over a Bitmap instance allowing enumeration of the corresponding prime numbers 
-template <typename T>
-class PrimesIterator
+template <typename T, typename U>
+class primes_iterator
 {
 public:
     using value_type = T;
@@ -1650,32 +1765,32 @@ public:
     using pointer = void;
     using iterator_category = std::input_iterator_tag;
 
-    explicit constexpr PrimesIterator(details::Bitmap * bmp, bool isEnd = false);
-    constexpr PrimesIterator() =  default;
+    explicit constexpr primes_iterator(details::bitmap<U> * bmp, bool isEnd = false);
+    constexpr primes_iterator() =  default;
     constexpr T operator*() const;
     constexpr T operator*();
-    constexpr PrimesIterator& operator++();
-    constexpr PrimesIterator operator++(int);
-    constexpr bool operator==(PrimesIterator const &) const;
-    constexpr bool operator!=(PrimesIterator const &) const;
+    constexpr primes_iterator& operator++();
+    constexpr primes_iterator operator++(int);
+    constexpr bool operator==(primes_iterator const &) const;
+    constexpr bool operator!=(primes_iterator const &) const;
 
 private:
     constexpr void next();
 
-    Bitmap * bmp_;
+    bitmap<U> * bmp_;
     std::size_t index_;
     T current_value_;
     std::size_t i_;
     bool is_first_;
 };
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-PrimesIterator<T>::PrimesIterator(details::Bitmap * bmp, bool isEnd)
+primes_iterator<T, U>::primes_iterator(details::bitmap<U> * bmp, bool isEnd)
     : bmp_(bmp)
     , index_(0)
     , current_value_(bmp->n0_)
-    , i_(details::Bitmap::indexInResidues(current_value_))
+    , i_(details::bitmap<U>::indexInResidues(current_value_))
     , is_first_(true)
 {
     if(!isEnd) {
@@ -1687,16 +1802,16 @@ PrimesIterator<T>::PrimesIterator(details::Bitmap * bmp, bool isEnd)
     }
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr void
-PrimesIterator<T>::next()
+primes_iterator<T, U>::next()
 {
     if(!is_first_ && (index_ < bmp_->size())) {
-	current_value_ += details::Bitmap::deltas_[i_],
+	current_value_ += details::bitmap<U>::deltas_[i_],
 	  i_ = (i_ + 1) % 8, ++index_;
     }
     for(; index_ < bmp_->size();
-        current_value_ += details::Bitmap::deltas_[i_],
+        current_value_ += details::bitmap<U>::deltas_[i_],
 	  i_ = (i_ + 1) % 8, ++index_) {
 	if(bmp_->at(index_)) {
 	    is_first_ = false;
@@ -1705,56 +1820,56 @@ PrimesIterator<T>::next()
     }
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-T PrimesIterator<T>::operator*() const
+T primes_iterator<T, U>::operator*() const
 {
     return current_value_;
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-T PrimesIterator<T>::operator*()
+T primes_iterator<T, U>::operator*()
 {
     return current_value_;
 }
 
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-PrimesIterator<T> & PrimesIterator<T>::operator++()
+primes_iterator<T, U> & primes_iterator<T, U>::operator++()
 {
     next();
     return *this;
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-PrimesIterator<T> PrimesIterator<T>::operator++(int)
+primes_iterator<T, U> primes_iterator<T, U>::operator++(int)
 {
-    PrimesIterator<T> tmp{*this};
+    primes_iterator<T, U> tmp{*this};
     ++(*this);
     return tmp;
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-bool PrimesIterator<T>::operator==(PrimesIterator<T> const & other) const
+bool primes_iterator<T, U>::operator==(primes_iterator<T, U> const & other) const
 {
     return (bmp_ == other.bmp_) && (index_ == other.index_);
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-bool PrimesIterator<T>::operator!=(PrimesIterator<T> const & other) const
+bool primes_iterator<T, U>::operator!=(primes_iterator<T, U> const & other) const
 {
     return !(*this == other);
 }
 
 // Iterator wrapper, this exist solely because C++20 does not have std::views::concat.
 // It wraps different kind of iterators in order to be able to call std::views::join
-template <typename T>
-struct IterW
+template <typename T, typename U>
+struct iter_w
 {
     using iterator_category = std::input_iterator_tag;
     using reference = T;
@@ -1763,75 +1878,75 @@ struct IterW
     using difference_type = std::ptrdiff_t;
     using value_type = T;
 
-    constexpr IterW() = default;
-    constexpr explicit IterW(typename std::vector<T>::iterator);
-    constexpr explicit IterW(PrimesIterator<T>);
+    constexpr iter_w() = default;
+    constexpr explicit iter_w(typename std::vector<T>::iterator);
+    constexpr explicit iter_w(primes_iterator<T, U>);
  
     constexpr T operator*();
     constexpr T operator*() const;
-    constexpr IterW& operator++();
-    constexpr IterW operator++(int);
-    constexpr bool operator==(IterW const& other) const;
-    constexpr bool operator!=(IterW const& other) const;
+    constexpr iter_w& operator++();
+    constexpr iter_w operator++(int);
+    constexpr bool operator==(iter_w const& other) const;
+    constexpr bool operator!=(iter_w const& other) const;
 
 private:
-    std::variant<typename std::vector<T>::iterator, PrimesIterator<T>> it_;
+    std::variant<typename std::vector<T>::iterator, primes_iterator<T, U>> it_;
 };
 
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-IterW<T>::IterW(typename std::vector<T>::iterator vecIter)
+iter_w<T, U>::iter_w(typename std::vector<T>::iterator vecIter)
     : it_(vecIter)
 {}
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-IterW<T>::IterW(PrimesIterator<T> myIter)
+iter_w<T, U>::iter_w(primes_iterator<T, U> myIter)
     : it_(myIter)
 {}
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-T IterW<T>::operator*()
+T iter_w<T, U>::operator*()
 {
     return std::visit([](auto&& z) -> T { return *z; }, it_);
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-T IterW<T>::operator*() const
+T iter_w<T, U>::operator*() const
 {
     return std::visit([](auto&& z) -> T { return *z; }, it_);
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-IterW<T>& IterW<T>::operator++()
+iter_w<T, U>& iter_w<T, U>::operator++()
 {
     std::visit([](auto&& z){ ++z; }, it_);
     return *this;
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-IterW<T> IterW<T>::operator++(int)
+iter_w<T, U> iter_w<T, U>::operator++(int)
 {
     auto tmp = *this;
     ++(*this);
     return tmp;
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-bool IterW<T>::operator==(IterW<T> const& other) const
+bool iter_w<T, U>::operator==(iter_w<T, U> const& other) const
 {
     return it_ == other.it_;
 }
 
-template <typename T>
+template <typename T, typename U>
 constexpr
-bool IterW<T>::operator!=(IterW<T> const& other) const
+bool iter_w<T, U>::operator!=(iter_w<T, U> const& other) const
 {
     return it_ != other.it_;
 }
@@ -1839,13 +1954,13 @@ bool IterW<T>::operator!=(IterW<T> const& other) const
 } // namespace details
 
 /// Class holding sieve results
-template<typename T>
-class SieveResults
+template<typename T, typename U>
+class sieve_results
 {
     std::vector<T> prefix_;
-    std::vector<details::Bitmap> bmps_;
+    std::vector<details::bitmap<U>> bmps_;
     // For the fields below we use lazy initialization
-    std::vector<decltype(std::ranges::subrange(details::IterW<T>{}, details::IterW<T>{}))> ranges_;
+    std::vector<decltype(std::ranges::subrange(details::iter_w<T, U>{}, details::iter_w<T, U>{}))> ranges_;
     decltype(ranges_ | std::views::join | std::views::common)  vranges_;
     bool isRangesInitialized_;
     std::size_t count_;
@@ -1853,7 +1968,7 @@ class SieveResults
 
 public:
     using range_type = decltype(vranges_);
-    constexpr SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap>&& bitmaps);
+    constexpr sieve_results(std::vector<T>&& prefix, std::vector<details::bitmap<U>>&& bitmaps);
     /// Returns a range suitable for iterating over the prime numbers resulting from the sieve
     constexpr auto range();
     /// Implicit cast to a range
@@ -1861,11 +1976,11 @@ public:
     /// Returns the number of prime numbers found by the sieve.
     constexpr std::size_t count();
 
-    friend constexpr auto begin(SieveResults & rng) {
+    friend constexpr auto begin(sieve_results & rng) {
 	rng.initRange();
 	return rng.vranges_.begin();
     }
-    friend constexpr auto end(SieveResults & rng) {
+    friend constexpr auto end(sieve_results & rng) {
 	rng.initRange();
 	return rng.vranges_.end();
     }
@@ -1873,8 +1988,8 @@ public:
     static_assert(std::is_same_v<range_type, decltype(vranges_)>);
 };
 
-template <typename T>
-constexpr SieveResults<T>::SieveResults(std::vector<T>&& prefix, std::vector<details::Bitmap> && bitmaps)
+template <typename T, typename U>
+constexpr sieve_results<T, U>::sieve_results(std::vector<T>&& prefix, std::vector<details::bitmap<U>> && bitmaps)
     : prefix_(std::move(prefix))
     , bmps_(std::move(bitmaps))
     , ranges_()
@@ -1883,40 +1998,40 @@ constexpr SieveResults<T>::SieveResults(std::vector<T>&& prefix, std::vector<det
     , count_(0)
 {}
 
-template <typename T>
-constexpr void SieveResults<T>::initRange()
+template <typename T, typename U>
+constexpr void sieve_results<T, U>::initRange()
 {
     if(isRangesInitialized_) {
 	return;
     }
     ranges_.reserve(bmps_.size() + prefix_.empty() ? 0 : 1);
     if(!prefix_.empty()) {
-	ranges_.push_back(std::ranges::subrange(details::IterW<T>{prefix_.begin()},
-			details::IterW<T>{prefix_.end()}));
+	ranges_.push_back(std::ranges::subrange(details::iter_w<T, U>{prefix_.begin()},
+			details::iter_w<T, U>{prefix_.end()}));
     }
     std::for_each(std::begin(bmps_), std::end(bmps_), [this](auto & bmp) {
-        ranges_.push_back(std::ranges::subrange(details::IterW<T>{details::PrimesIterator<T>{&bmp}}, 
-			   details::IterW<T>{details::PrimesIterator<T>{&bmp, true}}));
+        ranges_.push_back(std::ranges::subrange(details::iter_w<T, U>{details::primes_iterator<T, U>{&bmp}}, 
+			   details::iter_w<T, U>{details::primes_iterator<T, U>{&bmp, true}}));
       });
     vranges_ = ranges_ | std::views::join | std::views::common;
     isRangesInitialized_ = true;
 }
 
-template <typename T>
-constexpr auto SieveResults<T>::range()
+template <typename T, typename U>
+constexpr auto sieve_results<T, U>::range()
 {
     initRange();
     return vranges_;
 }
 
-template <typename T>
-constexpr SieveResults<T>::operator SieveResults<T>::range_type()
+template <typename T, typename U>
+constexpr sieve_results<T, U>::operator sieve_results<T, U>::range_type()
 {
     return range();
 }
 
-template <typename T>
-constexpr std::size_t SieveResults<T>::count()
+template <typename T, typename U>
+constexpr std::size_t sieve_results<T, U>::count()
 {
     if(count_) {
 	return count_;
@@ -1935,11 +2050,11 @@ namespace details {
 template <typename T>
 inline constexpr auto u16primes = []() {
     auto sv = [] {
-        Bitmap bmp;
-	sieve_data sievdat{.bitmap_ = &bmp};
+        bitmap<std::uint16_t> bmp;
+	sieve_data<std::uint16_t> sievdat{.bitmap_ = &bmp};
         return inner_sieve<uint16_t>(
 		    u8primes<uint16_t>, uint16_t(0), uint16_t(65535),
-		    collectSieveResults<uint16_t>,
+		    collectSieveResults<uint16_t, uint16_t>,
 		    sievdat);
     };
     std::array<T, sv().size()> u16primesArr;
@@ -1953,24 +2068,14 @@ struct segment
 {
     U low_;
     U high_;
-    Bitmap * bitmap_;
+    bitmap<U> * bitmap_;
     bucket<U> * bucket_;
 };
 
-template <typename T, typename I, typename Fct>
+template <typename T, typename U, typename Fct>
 constexpr auto
-sieve(I k0, I k1, Fct ff)
+sieve(U n0, U n1, Fct ff)
 {
-    static_assert(is_one_of_v<I, int8_t, uint8_t, int16_t, uint16_t,
-            int32_t, uint32_t, int64_t, uint64_t, decltype(0ull)>);
-
-    if constexpr(std::numeric_limits<I>::is_signed) {
-        k0 = (std::max)(I{0}, k0);
-        k1 = (std::max)(I{0}, k1);
-    }
-    using U = std::make_unsigned_t<I>;
-    const U n0 = U(k0), n1 = U(k1);
-    
     LFP_LOG("sieving range [" << n0 << ", " << n1 << "[");
 
     constexpr U maxn = std::numeric_limits<U>::max();
@@ -1983,7 +2088,10 @@ sieve(I k0, I k1, Fct ff)
     std::vector<T> prefix;
     prefix.reserve(3);
     auto const estimatedNumSegments = (n1 - n0) / segmentSize + 1;
-    std::vector<Bitmap> bitmaps;
+    std::vector<bitmap<U>> bitmaps;
+    if(n0 >= n1) {
+	return ff(prefix, bitmaps);
+    }
     bitmaps.reserve(estimatedNumSegments);
     std::vector<bucket<U>> buckets;
     buckets.reserve(estimatedNumSegments);
@@ -1995,7 +2103,7 @@ sieve(I k0, I k1, Fct ff)
         a0 < n1;
         a0 = (maxn - segmentSize < a0) ? maxn : a0 + segmentSize,
         a1 = std::min(n1, maxn - segmentSize < a0 ? maxn : U(a0 + segmentSize))) {
-	bitmaps.push_back(Bitmap{});
+	bitmaps.push_back(bitmap<U>{});
 	buckets.push_back(bucket<U>{scratchOffsets, initial_bucket_capacity});
         segments.emplace_back(segment<U>{
 	    .low_ = a0,
@@ -2010,11 +2118,16 @@ sieve(I k0, I k1, Fct ff)
             return (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
         } else {
             // Established through tests
+	    if constexpr (std::numeric_limits<U>::digits > 64) {
+                if(n1 >= (U{1} << 64)) {
+                    return U{32*1024*1024};
+		}
+	    }
             if(n1 >= U{55}<<54) {
                 return U{16*1024*1024};
             }
             return (std::min)(U{16*1024*1024},
-                        U{1} << ((std::bit_width(n1) + 1)/2));
+                        U{1} << ((bit_width(n1) + 1) / 2));
         } }();
     constexpr auto maxm = (U{1} << (std::numeric_limits<U>::digits / 2)) - 1;
 
@@ -2029,15 +2142,15 @@ sieve(I k0, I k1, Fct ff)
                     return u16primes<uint16_t>;
                 }
               }();
-        Bitmap basePrimesBmp;
+        bitmap<U> basePrimesBmp;
             details::inner_sieve<U>(basePrimes, m0, m1,
-                [](auto, auto, details::Bitmap const *){ }, sieve_data{
+                [](auto, auto, details::bitmap<U> const *){ }, sieve_data<U>{
                   .bitmap_ = &basePrimesBmp,
                   .have_to_initialize_bitmap_ = true
               });
     
         auto pSquared = U{};
-        details::PrimesIterator<U> itP{&basePrimesBmp}, itPe{&basePrimesBmp, true};
+        details::primes_iterator<U, U> itP{&basePrimesBmp}, itPe{&basePrimesBmp, true};
         for(auto p : std::ranges::subrange(itP, itPe) 
 		     | std::views::drop_while([](auto q){ return q < bucketed_primes_threshold(); })) {
 	    pSquared = p * p;
@@ -2076,21 +2189,21 @@ sieve(I k0, I k1, Fct ff)
       }();
     // @todo: make this static?
     auto basePrimesForSegmentSieve = [basePrimesUpperBound](){
-	Bitmap bmp;
-	sieve_data sievdat{.bitmap_ = &bmp};
-	return inner_sieve<U>(u16primes<U>, U{}, basePrimesUpperBound, collectSieveResults<U>, sievdat);
+	bitmap<U> bmp;
+	sieve_data<U> sievdat{.bitmap_ = &bmp};
+	return inner_sieve<U>(u16primes<U>, U{}, basePrimesUpperBound, collectSieveResults<U, U>, sievdat);
       }();
     
     for(auto & currentSegment : segments) {
         details::inner_sieve<T>(basePrimesForSegmentSieve, currentSegment.low_, currentSegment.high_,
-            [&](auto it, auto ite, details::Bitmap const*){
+            [&](auto it, auto ite, details::bitmap<U> const*){
                 if(it != ite) {
                     prefix = std::vector<T>{it, ite};
                 }
                 return 0;
-            },  sieve_data{ .bitmap_ = currentSegment.bitmap_,
-                            .have_to_initialize_bitmap_ = true,
-			    .have_to_ignore_bucketable_primes_ = true });
+            },  sieve_data<U>{ .bitmap_ = currentSegment.bitmap_,
+                               .have_to_initialize_bitmap_ = true,
+			       .have_to_ignore_bucketable_primes_ = true });
         currentSegment.bitmap_->apply_and_clear(*currentSegment.bucket_);
     }
 
@@ -2106,18 +2219,30 @@ void partition_range(U n0, U n1, int N, FuncT processRange)
     } else if((N == 1) || (n1 - n0 < N)) {
         processRange(n0, n1);
     } else {
-        auto v = std::views::iota(1, N + 1);
-        auto weight = std::accumulate(std::begin(v), std::end(v), 0.0,
+        auto viota = std::views::iota(1, N + 1);
+        auto weight = std::accumulate(std::begin(viota), std::end(viota), 0.0,
             [](double x, auto k){ return x + 1.0 / std::sqrt(k);
           });
         auto c = (n1 - n0) / weight;
         auto current = n0;
-        std::for_each(std::begin(v), std::end(v), [&](auto k){
-            auto ni = (k == N) ? n1 : current + c / std::sqrt(k);
-            processRange(current, ni);
-            current = ni;
-          });
+	for(auto k : viota) {
+	    auto ni = std::min(n1, (k == N) ? n1 : current + U(c / std::sqrt(k)));
+	    processRange(current, ni);
+	    current = ni;
+	    if(current == n1) {
+		break;
+	    }
+	}
     }
+}
+
+
+template <typename Int>
+constexpr auto to_unsigned_range(Int n0, Int n1)
+{
+    n0 = (std::max)(Int{}, n0);
+    n1 = (std::max)(Int{}, n1);
+    return std::make_pair(to_unsigned_t<Int>(n0), to_unsigned_t<Int>(n1));
 }
 
 } // namespace details
@@ -2146,40 +2271,46 @@ inline unsigned int threads::count() const
     return count_;
 }
 
-template <typename T, typename U>
-constexpr SieveResults<T>
-sieve(U n0, U n1)
+template <typename ResultInt, typename Int>
+constexpr sieve_results<ResultInt, to_unsigned_t<Int>> 
+sieve(Int n0, Int n1)
 {
-    return details::sieve<T>(n0, n1,
-	       [](auto & prefix, std::vector<details::Bitmap> & bitmaps) {
-                   return SieveResults<T>{std::move(prefix), std::move(bitmaps)};
+    auto [u0, u1] = details::to_unsigned_range(n0, n1);
+    using UInt = to_unsigned_t<Int>;
+    return details::sieve<ResultInt>(u0, u1,
+	       [](auto & prefix, std::vector<details::bitmap<UInt>> & bitmaps) {
+                   return sieve_results<ResultInt, UInt>{std::move(prefix), std::move(bitmaps)};
                });
 }
 
-template <typename T, typename U>
-constexpr std::vector<T>
-sieve_to_vector(U n0, U n1)
+template <typename ResultInt, typename Int>
+constexpr std::vector<ResultInt>
+sieve_to_vector(Int n0, Int n1)
 {
-    auto res = sieve<T>(n0, n1);
+    auto [u0, u1] = details::to_unsigned_range(n0, n1);
+    auto res = sieve<ResultInt, decltype(u0)>(u0, u1);
     auto rng = res.range();
-    return std::vector<T>(rng.begin(), rng.end());
+    return std::vector<ResultInt>(rng.begin(), rng.end());
 }
 
 
-template <typename T, typename U>
-SieveResults<T>
-sieve(U n0, U n1, threads const & threads)
+template <typename ResultInt, typename Int>
+sieve_results<ResultInt, to_unsigned_t<Int>>
+sieve(Int n0, Int n1, threads const & threads)
 {
-    if(threads.count() == 1 || (n1 <= n0) || (n1 - n0) <= threads.count()) {
-	return sieve<T>(n0, n1);
+    using UInt = to_unsigned_t<Int>;
+    auto [u0, u1] = details::to_unsigned_range(n0, n1);
+    
+    if(threads.count() == 1 || (u1 <= u0) || (u1 - u0) <= threads.count()) {
+	return sieve<ResultInt, UInt>(u0, u1);
     }
-    std::vector<std::future<std::vector<details::Bitmap>>> results;
-    std::vector<T> prefix;
-    details::partition_range(n0, n1, threads.count(), [&](U v0, U v1) {
+    std::vector<std::future<std::vector<details::bitmap<UInt>>>> results;
+    std::vector<ResultInt> prefix;
+    details::partition_range(u0, u1, threads.count(), [&](UInt v0, UInt v1) {
 	results.emplace_back(std::async(std::launch::async,
 		[v0, v1, &prefix](){
-		   return details::sieve<T>(v0, v1,
-			[&](auto & pref, std::vector<details::Bitmap> & bmps) {
+		   return details::sieve<ResultInt>(v0, v1,
+			[&](auto & pref, std::vector<details::bitmap<UInt>> & bmps) {
 			    if(!pref.empty()) {
 			        prefix = std::move(pref);
 			    }
@@ -2187,21 +2318,21 @@ sieve(U n0, U n1, threads const & threads)
 			});
 		}));
     });
-    std::vector<details::Bitmap> bmps =
+    std::vector<details::bitmap<UInt>> bmps =
         std::accumulate(std::begin(results), std::end(results),
-          std::vector<details::Bitmap>{},
+          std::vector<details::bitmap<UInt>>{},
           [](auto x, auto & y) {
 	      for(auto & b : y.get()) {
 	          x.emplace_back(std::move(b));
 	      }
 	      return std::move(x);
 	  });
-    return SieveResults<T>{std::move(prefix), std::move(bmps)};
+    return sieve_results<ResultInt, UInt>{std::move(prefix), std::move(bmps)};
 }
 
 
-template <typename U>
-constexpr std::size_t count_primes(U n0, U n1)
+template <typename Int>
+constexpr std::size_t count_primes(Int n0, Int n1)
 {
     std::size_t count = 0;
     const auto rangeSize = [n1]() {
@@ -2209,18 +2340,20 @@ constexpr std::size_t count_primes(U n0, U n1)
 	if(n1 < (1ull << 36)) return 64*1024*1024;
 	return 256*1024*1024;
       } ();
-    constexpr auto maxn = std::numeric_limits<U>::max();
-    for(auto a0 = n0, a1 = std::min(n1, (maxn - rangeSize < n0) ? maxn : n0 + rangeSize);
-	a0 < n1;
-        a0 = (maxn - rangeSize < a0) ? maxn : a0 + rangeSize, 
-	  a1 = std::min(n1, maxn - rangeSize < a0 ? maxn : a0 + rangeSize)) {
-	count += sieve<U>(a0, a1).count(); 
+    auto [u0, u1] = details::to_unsigned_range(n0, n1);
+    using UInt = to_unsigned_t<Int>;
+    constexpr auto maxu = std::numeric_limits<UInt>::max();
+    for(auto a0 = u0, a1 = std::min(u1, (maxu - rangeSize < u0) ? maxu : u0 + rangeSize);
+	a0 < u1;
+        a0 = (maxu - rangeSize < a0) ? maxu : a0 + rangeSize, 
+	  a1 = std::min(u1, maxu - rangeSize < a0 ? maxu : a0 + rangeSize)) {
+	count += sieve<UInt, UInt>(a0, a1).count(); 
     }
     return count; 
 }
 
-template <typename U>
-std::size_t count_primes(U n0, U n1, threads const & threads)
+template <typename Int>
+std::size_t count_primes(Int n0, Int n1, threads const & threads)
 {
     if(n0 >= n1) {
 	return 0;
@@ -2230,14 +2363,13 @@ std::size_t count_primes(U n0, U n1, threads const & threads)
         return count_primes(n0, n1);
     }
     std::vector<std::future<std::size_t>> results;
-    details::partition_range(n0, n1, numThreads, [&results](U v0, U v1) {
-	results.emplace_back(std::async(std::launch::async, static_cast<std::size_t(*)(U,U)>(count_primes<U>), v0, v1));
+    details::partition_range(n0, n1, numThreads, [&results](Int v0, Int v1) {
+	results.emplace_back(std::async(std::launch::async, static_cast<std::size_t(*)(Int, Int)>(count_primes<Int>), v0, v1));
     });
     return std::accumulate(std::begin(results), std::end(results),
 		    std::size_t{}, [](auto x, auto & y) { return x + y.get(); });
 }
 
 } // namespace lfp
-
 
 
