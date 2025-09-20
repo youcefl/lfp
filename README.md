@@ -2,7 +2,7 @@
 
 # LFP
 
-## A constexpr implementation of the sieve of Eratosthenes
+## A constexpr C++20 implementation of the sieve of Eratosthenes
 
 LFP is a constexpr implementation of the sieve of Eratosthenes, it consists of a single header file, namely `lfp.hpp`.
 It was born out of my willingness to learn and also give back to the community. After several attempts over the years that did not yield satisfying results, LFP, which started in late 2024, finally achieved my goals thanks to recent C++ language features.
@@ -77,7 +77,7 @@ $ lfp -t 8 0 10000000000
 # Output all primes in the range [100000, 101000[
 $ lfp -p 100000 101000
 ```
-To run the existing tests you will need to have [Catch2](https://github.com/catchorg/Catch2) installed (note that it is included as a submodule of the repository), once install simply run:
+To run the existing tests you will need to have [Catch2](https://github.com/catchorg/Catch2) installed (note that it is included as a submodule of the repository), once installed simply run:
 ```
 $ make checks
 ```
